@@ -1,3 +1,5 @@
+from datetime import date
+
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
@@ -41,6 +43,15 @@ def get_establishments(
         data=results,
         meta=PaginationMeta(total=total, page=page, limit=limit),
     )
+
+
+def get_known_ext_ids(db: Session, county: str) -> dict[str, date | None]:
+    rows = db.execute(
+        select(Establishment.ext_id, Establishment.last_inspection_date).where(
+            Establishment.county == county.upper()
+        )
+    ).all()
+    return {row.ext_id: row.last_inspection_date for row in rows}
 
 
 def get_establishment_by_ext_id(db: Session, ext_id: str) -> Establishment | None:
