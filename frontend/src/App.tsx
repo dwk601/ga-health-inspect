@@ -271,6 +271,7 @@ function App() {
       mapReadyRef.current = true
       return
     }
+    if (selected) return
     setAreaDirty((dirty) => (dirty ? dirty : true))
   }
 
@@ -288,6 +289,7 @@ function App() {
 
   const focusPoint = (point: EstablishmentPoint) => {
     setSelected(point)
+    setAreaDirty(false)
     setListOpen(false)
     mapRef.current?.flyTo({
       center: [point.longitude, point.latitude],
@@ -354,6 +356,7 @@ function App() {
           clusterThresholds={[30, 140]}
           pointColor="#58c783"
           onPointClick={(feature, coordinates) => {
+            setAreaDirty(false)
             setSelected({ ...feature.properties, longitude: coordinates[0], latitude: coordinates[1] })
           }}
         />
@@ -395,8 +398,8 @@ function App() {
 
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_24%_8%,rgba(88,199,131,.22),transparent_26%),linear-gradient(180deg,rgba(7,11,10,.74)_0%,rgba(7,11,10,.08)_28%,rgba(7,11,10,.52)_100%)]" />
 
-      {areaDirty && (
-        <div className="absolute left-1/2 top-[45%] z-30 -translate-x-1/2 sm:top-24 lg:top-7">
+      {areaDirty && !selected && !listOpen && (
+        <div className="absolute left-1/2 top-[max(3.25rem,calc(env(safe-area-inset-top)+3.25rem))] z-30 -translate-x-1/2 lg:top-7">
           <button
             type="button"
             onClick={refreshArea}
