@@ -407,7 +407,7 @@ function App() {
         </div>
       )}
 
-      <header className="pointer-events-none absolute left-0 right-0 top-0 z-20 p-4 pt-[max(1rem,env(safe-area-inset-top))] sm:p-5 lg:left-5 lg:right-auto lg:top-5 lg:w-[380px] lg:p-0">
+      <header className="pointer-events-none absolute left-0 right-0 top-0 z-20 hidden p-4 pt-[max(1rem,env(safe-area-inset-top))] sm:p-5 lg:left-5 lg:right-auto lg:top-5 lg:block lg:w-[380px] lg:p-0">
         <div className="pointer-events-auto rounded-[1.6rem] border border-white/10 bg-[#101512]/76 p-4 shadow-[0_24px_80px_rgba(0,0,0,.34)] backdrop-blur-xl lg:p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -429,29 +429,55 @@ function App() {
         </div>
       </header>
 
+      <div className="pointer-events-none absolute left-3 top-[max(.75rem,env(safe-area-inset-top))] z-20 flex items-center gap-2 rounded-full border border-white/10 bg-[#101512]/78 px-3 py-2 text-xs font-semibold text-[#dce7dd] shadow-[0_18px_60px_rgba(0,0,0,.28)] backdrop-blur-xl lg:hidden">
+        <span className="text-[#58c783]">{filteredPoints.length.toLocaleString()}</span>
+        <span className="text-[#7f9186]">shown</span>
+      </div>
+
       <section className="absolute bottom-0 left-0 right-0 z-20 p-3 pb-[max(.75rem,env(safe-area-inset-bottom))] lg:bottom-5 lg:left-5 lg:right-auto lg:w-[380px] lg:p-0">
         <div className="rounded-[1.8rem] border border-white/10 bg-[#101512]/86 p-3 shadow-[0_-20px_80px_rgba(0,0,0,.38)] backdrop-blur-2xl lg:p-4">
           <button
             type="button"
             onClick={() => setSheetOpen((open) => !open)}
-            className="mx-auto mb-3 flex h-8 w-full items-center justify-center gap-2 rounded-full text-xs font-medium text-[#9baa9f] lg:hidden"
+            className="mx-auto mb-2 flex h-8 w-full items-center justify-center gap-2 rounded-full text-xs font-medium text-[#9baa9f] lg:hidden"
             aria-expanded={sheetOpen}
           >
             <span className="h-1.5 w-12 rounded-full bg-white/24" />
+            <span>{sheetOpen ? 'Hide search' : 'Search / filters'}</span>
             <ChevronUp className={`transition ${sheetOpen ? 'rotate-180' : ''}`} size={15} />
           </button>
 
-          <label className="relative block">
-            <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#7f9186]" size={18} strokeWidth={1.7} />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search place or city"
-              className="h-13 w-full rounded-[1.25rem] border border-white/8 bg-[#0b100e] pl-11 pr-4 text-base text-[#eef4ed] outline-none transition placeholder:text-[#728278] focus:border-[#58c783]/50 focus:shadow-[0_0_0_4px_rgba(88,199,131,.12)]"
-            />
-          </label>
+          <div className="grid grid-cols-2 gap-2 lg:hidden">
+            <button
+              type="button"
+              onClick={() => setListOpen(true)}
+              className="flex h-11 items-center justify-center gap-2 rounded-full border border-white/8 bg-white/[.06] text-sm font-semibold text-[#eef4ed] active:scale-[.98]"
+            >
+              <List size={16} strokeWidth={1.8} />
+              List
+            </button>
+            <button
+              type="button"
+              onClick={useCurrentLocation}
+              disabled={isLocating}
+              className="flex h-11 items-center justify-center gap-2 rounded-full bg-[#eef4ed] text-sm font-semibold text-[#101512] active:scale-[.98] disabled:opacity-55"
+            >
+              <Navigation size={16} strokeWidth={1.8} />
+              {isLocating ? 'Finding' : 'Near me'}
+            </button>
+          </div>
 
-          <div className={`${sheetOpen ? 'mt-3 max-h-80 opacity-100' : 'mt-0 max-h-0 opacity-0'} overflow-hidden transition-all duration-300 lg:mt-3 lg:max-h-none lg:opacity-100`}>
+          <div className={`${sheetOpen ? 'mt-3 max-h-[28rem] opacity-100' : 'mt-0 max-h-0 opacity-0'} overflow-hidden transition-all duration-300 lg:mt-0 lg:max-h-none lg:opacity-100`}>
+            <label className="relative block">
+              <Search className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[#7f9186]" size={18} strokeWidth={1.7} />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search place or city"
+                className="h-13 w-full rounded-[1.25rem] border border-white/8 bg-[#0b100e] pl-11 pr-4 text-base text-[#eef4ed] outline-none transition placeholder:text-[#728278] focus:border-[#58c783]/50 focus:shadow-[0_0_0_4px_rgba(88,199,131,.12)]"
+              />
+            </label>
+
             <FilterRow label="Score">
               {scoreOptions.map(({ value, label }) => (
                 <FilterChip key={value} active={scoreFilter === value} onClick={() => setScoreFilter(value)}>
@@ -476,7 +502,7 @@ function App() {
             <button
               type="button"
               onClick={() => setListOpen(true)}
-              className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-full border border-white/8 bg-white/[.06] text-sm font-semibold text-[#eef4ed] transition hover:bg-white/[.10] active:scale-[.98]"
+              className="mt-3 hidden h-11 w-full items-center justify-center gap-2 rounded-full border border-white/8 bg-white/[.06] text-sm font-semibold text-[#eef4ed] transition hover:bg-white/[.10] active:scale-[.98] lg:flex"
             >
               <List size={16} strokeWidth={1.8} />
               View list
@@ -486,7 +512,7 @@ function App() {
               type="button"
               onClick={useCurrentLocation}
               disabled={isLocating}
-              className="mt-2 flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[#eef4ed] text-sm font-semibold text-[#101512] transition hover:bg-white active:scale-[.98] disabled:opacity-55"
+              className="mt-2 hidden h-11 w-full items-center justify-center gap-2 rounded-full bg-[#eef4ed] text-sm font-semibold text-[#101512] transition hover:bg-white active:scale-[.98] disabled:opacity-55 lg:flex"
             >
               <Navigation size={16} strokeWidth={1.8} />
               {isLocating ? 'Finding location' : 'Near me'}
