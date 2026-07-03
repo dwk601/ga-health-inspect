@@ -219,28 +219,13 @@ function App() {
       setError(null)
       setLoadedCount(0)
       try {
-        const pageSize = 100
+        const pageSize = 50000
         const firstPage = await fetchPage(1, pageSize)
-        const totalAvailable = firstPage.meta.total
-        const pageCount = Math.ceil(totalAvailable / pageSize)
         const allPoints = firstPage.data.map(toPoint)
 
-        setTotal(totalAvailable)
+        setTotal(firstPage.meta.total)
         setPoints(allPoints)
         setLoadedCount(allPoints.length)
-
-        const chunkSize = 10
-        for (let startPage = 2; startPage <= pageCount; startPage += chunkSize) {
-          const chunkPages = Array.from(
-            { length: Math.min(chunkSize, pageCount - startPage + 1) },
-            (_, index) => startPage + index,
-          )
-          const pages = await Promise.all(chunkPages.map((page) => fetchPage(page, pageSize)))
-          if (controller.signal.aborted) return
-          allPoints.push(...pages.flatMap((page) => page.data.map(toPoint)))
-          setPoints([...allPoints])
-          setLoadedCount(allPoints.length)
-        }
       } catch (fetchError) {
         if (fetchError instanceof DOMException && fetchError.name === 'AbortError') return
         setError(fetchError instanceof Error ? fetchError.message : 'Unable to load GA Health records')

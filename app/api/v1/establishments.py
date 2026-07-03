@@ -15,7 +15,7 @@ async def list_establishments(
     min_score: int | None = Query(None, ge=0, le=100, description="Minimum inspection score"),
     permit_type: str | None = Query(None, description="Filter by permit type"),
     page: int = Query(1, ge=1, description="Page number"),
-    limit: int = Query(50, ge=1, le=100, description="Items per page"),
+    limit: int = Query(50, ge=1, le=50000, description="Items per page"),
     db: Session = Depends(get_db),
 ):
     return get_establishments(
