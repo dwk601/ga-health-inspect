@@ -29,7 +29,7 @@ func newStore(logger *slog.Logger) *store {
 	config.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
 	config.AfterConnect = func(ctx context.Context, c *pgx.Conn) error {
 		var super bool
-		if err := c.QueryRow(ctx, `SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user`).Scan(&super); err != nil {
+		if err := c.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r WHERE r.rolsuper AND pg_has_role(session_user, r.oid, 'MEMBER'))`).Scan(&super); err != nil {
 			return err
 		}
 		if super {

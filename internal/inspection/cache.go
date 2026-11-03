@@ -15,7 +15,6 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -34,6 +33,7 @@ type pointsCache struct {
 	prefix  string
 	mu      sync.Mutex
 	filling map[string]*pointFill
+	logger  *slog.Logger
 }
 
 type pointFill struct {
@@ -57,7 +57,7 @@ func (c *pointsCache) fill(ctx context.Context, s *store, generation string, cac
 			defer cancel()
 			pending.meta, pending.blob, pending.err = s.fill(fillCtx)
 			if pending.err == nil {
-				(&cacheRequest{cache: c, failed: cacheFailed}).publish(fillCtx, pending.meta, pending.blob)
+				(&cacheRequest{cache: c, silent: cacheFailed}).publish(fillCtx, pending.meta, pending.blob)
 			}
 			c.mu.Lock()
 			delete(c.filling, generation)
@@ -79,7 +79,7 @@ func newCache(logger *slog.Logger) *pointsCache {
 	if environment == "" {
 		environment = "default"
 	}
-	c := &pointsCache{prefix: "gahi:" + environment + ":v1:"}
+	c := &pointsCache{prefix: "gahi:" + environment + ":v2:", logger: logger}
 	url := os.Getenv("REDIS_URL")
 	if url == "" {
 		return c
@@ -90,7 +90,7 @@ func newCache(logger *slog.Logger) *pointsCache {
 		return c
 	}
 	opts.DialTimeout = 100 * time.Millisecond
-	opts.ReadTimeout = 100 * time.Millisecond
+	opts.ReadTimeout = time.Second
 	opts.WriteTimeout = 100 * time.Millisecond
 	opts.PoolTimeout = 100 * time.Millisecond
 	opts.DialerRetries = 1
@@ -103,21 +103,32 @@ func newCache(logger *slog.Logger) *pointsCache {
 type cacheRequest struct {
 	cache  *pointsCache
 	failed bool
+	silent bool
 }
 
-func (r *cacheRequest) get(ctx context.Context, key string) ([]byte, error) {
+func (r *cacheRequest) get(ctx context.Context, key string, timeout time.Duration) ([]byte, error) {
 	if r.failed || r.cache.client == nil {
 		return nil, errors.New("cache unavailable")
 	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 	v, err := r.cache.client.Get(ctx, key).Bytes()
 	if err != nil && err != redis.Nil {
-		r.failed = true
+		r.fail()
 	}
 	return v, err
 }
+func (r *cacheRequest) fail() {
+	if !r.failed {
+		if !r.silent {
+			r.cache.logger.Warn("Inspection cache operation failed")
+		}
+		r.failed = true
+	}
+}
 func (r *cacheRequest) meta(ctx context.Context, key string) (metadata, error) {
 	var m metadata
-	b, err := r.get(ctx, key)
+	b, err := r.get(ctx, key, 100*time.Millisecond)
 	if err != nil {
 		return m, err
 	}
@@ -149,9 +160,7 @@ func coordinates(url *string) []float64 {
 
 type point struct {
 	ID          string    `json:"id"`
-	Name        *string   `json:"name"`
 	PermitType  *string   `json:"permitType"`
-	Score       *float64  `json:"score"`
 	Coordinates []float64 `json:"coordinates"`
 }
 type snapshot struct {
@@ -174,7 +183,7 @@ func (s *store) fill(ctx context.Context) (metadata, []byte, error) {
 	if err != nil {
 		return metadata{}, nil, err
 	}
-	rows, err := tx.Query(ctx, `SELECT source_id,name,permit_type,last_inspection_score,google_places FROM public.facilities ORDER BY source_id`)
+	rows, err := tx.Query(ctx, `SELECT source_id,permit_type,google_places FROM public.facilities ORDER BY source_id`)
 	if err != nil {
 		return metadata{}, nil, err
 	}
@@ -183,7 +192,7 @@ func (s *store) fill(ctx context.Context) (metadata, []byte, error) {
 	for rows.Next() {
 		var p point
 		var url *string
-		if err = rows.Scan(&p.ID, &p.Name, &p.PermitType, &p.Score, &url); err != nil {
+		if err = rows.Scan(&p.ID, &p.PermitType, &url); err != nil {
 			break
 		}
 		if p.PermitType != nil && *p.PermitType != "" {
@@ -212,8 +221,17 @@ func (s *store) fill(ctx context.Context) (metadata, []byte, error) {
 	if err != nil {
 		return metadata{}, nil, err
 	}
-	sum := sha256.Sum256(data)
+	stable, err := json.Marshal(struct {
+		Generation    string   `json:"generation"`
+		Points        []point  `json:"points"`
+		PermitChoices []string `json:"permitChoices"`
+	}{snap.Generation, snap.Points, snap.PermitChoices})
+	if err != nil {
+		return metadata{}, nil, err
+	}
+	sum := sha256.Sum256(stable)
 	digest := hex.EncodeToString(sum[:])
+	blobSum := sha256.Sum256(data)
 	var buf bytes.Buffer
 	zw := gzip.NewWriter(&buf)
 	if _, err = zw.Write(data); err != nil {
@@ -222,7 +240,7 @@ func (s *store) fill(ctx context.Context) (metadata, []byte, error) {
 	if err = zw.Close(); err != nil {
 		return metadata{}, nil, err
 	}
-	return metadata{Generation: gen, GeneratedAt: snap.GeneratedAt, ETag: `W/"` + digest + `"`}, buf.Bytes(), nil
+	return metadata{Generation: gen, GeneratedAt: snap.GeneratedAt, ETag: `W/"` + digest + `"`, Blob: hex.EncodeToString(blobSum[:])}, buf.Bytes(), nil
 }
 
 // Publication checks both the generation and timestamp in a single Redis operation.
@@ -244,14 +262,18 @@ func (r *cacheRequest) publish(ctx context.Context, m metadata, blob []byte) {
 	if r.failed || r.cache.client == nil {
 		return
 	}
-	m.Blob = r.cache.prefix + "etl:" + m.Generation + ":points:blob:" + strings.Trim(m.ETag, `W/"`)
+	m.Blob = r.cache.prefix + "etl:" + m.Generation + ":points:blob:" + m.Blob
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
 	if err := r.cache.client.Set(ctx, m.Blob, blob, 24*time.Hour).Err(); err != nil {
-		r.failed = true
+		r.fail()
 		return
 	}
 	data, _ := json.Marshal(m)
-	if err := r.cache.client.Eval(ctx, publishScript, []string{r.cache.metaKey(m.Generation), r.cache.prefix + "points:last-good"}, data).Err(); err != nil {
-		r.failed = true
+	metaCtx, metaCancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer metaCancel()
+	if err := r.cache.client.Eval(metaCtx, publishScript, []string{r.cache.metaKey(m.Generation), r.cache.prefix + "points:last-good"}, data).Err(); err != nil {
+		r.fail()
 	}
 }
 func unzip(blob []byte) ([]byte, error) {

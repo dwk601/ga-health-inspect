@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"ga-health-inspect/internal/community"
 	"ganigeorgiev.com/pocketbase/dbx"
@@ -43,7 +44,7 @@ func (s *service) search(e *core.RequestEvent) error {
 	e.Response.Header().Set("Cache-Control", "no-store")
 	query := strings.TrimSpace(e.Request.URL.Query().Get("q"))
 	permit := strings.TrimSpace(e.Request.URL.Query().Get("permit"))
-	if len(query) > 200 || len(permit) > 200 {
+	if len(query) > 200 || len(permit) > 200 || !validText(query) || !validText(permit) {
 		return e.JSON(http.StatusBadRequest, map[string]string{"error": "query too long"})
 	}
 	ctx, cancel := requestContext(e)
@@ -57,7 +58,7 @@ func (s *service) search(e *core.RequestEvent) error {
 func (s *service) detail(e *core.RequestEvent) error {
 	e.Response.Header().Set("Cache-Control", "no-store")
 	id := e.Request.PathValue("id")
-	if len(id) > 500 {
+	if len(id) > 500 || !validText(id) {
 		return e.JSON(http.StatusBadRequest, map[string]string{"error": "invalid id"})
 	}
 	ctx, cancel := requestContext(e)
@@ -75,7 +76,9 @@ func (s *service) detail(e *core.RequestEvent) error {
 	}
 	return e.JSON(http.StatusOK, result)
 }
+func validText(s string) bool { return utf8.ValidString(s) && !strings.ContainsRune(s, 0) }
 func unavailable(e *core.RequestEvent) error {
+	e.App.Logger().Warn("Inspection data unavailable")
 	return e.JSON(http.StatusServiceUnavailable, map[string]string{"error": "inspection data unavailable"})
 }
 func matches(header, tag string) bool {
@@ -112,6 +115,7 @@ func servePoints(e *core.RequestEvent, m metadata, blob []byte, stale bool) erro
 	h.Set("Cache-Control", "public, max-age=0, must-revalidate")
 	h.Set("ETag", m.ETag)
 	if stale {
+		e.App.Logger().Warn("Serving stale inspection data after source failure")
 		h.Set("Warning", `110 - "Response is stale"`)
 		h.Set("X-Inspection-Stale", "true")
 	}
@@ -146,7 +150,7 @@ func (s *service) cached(e *core.RequestEvent, ctx context.Context, r *cacheRequ
 	if matches(e.Request.Header.Get("If-None-Match"), m.ETag) {
 		return true, servePoints(e, m, nil, stale)
 	}
-	blob, err := r.get(ctx, m.Blob)
+	blob, err := r.get(ctx, m.Blob, time.Second)
 	if err != nil {
 		return false, nil
 	}

@@ -27,6 +27,9 @@ func startTestServer(t *testing.T) (*httptest.Server, *pocketbase.PocketBase) {
 	if err := pb.Bootstrap(); err != nil {
 		t.Fatal(err)
 	}
+	if err := pb.RunAppMigrations(); err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() {
 		if err := pb.OnTerminate().Trigger(&core.TerminateEvent{App: pb}); err != nil {
 			t.Errorf("terminate app: %v", err)
@@ -185,7 +188,6 @@ func TestInspectionAPI(t *testing.T) {
 		Points []struct {
 			ID          string    `json:"id"`
 			Coordinates []float64 `json:"coordinates"`
-			Score       *float64  `json:"score"`
 		} `json:"points"`
 		PermitChoices []string `json:"permitChoices"`
 		GeneratedAt   string   `json:"generatedAt"`
@@ -193,7 +195,7 @@ func TestInspectionAPI(t *testing.T) {
 	if err = json.Unmarshal(body, &points); err != nil {
 		t.Fatal(err)
 	}
-	if len(points.Points) != 2 || len(points.PermitChoices) != 2 || points.Points[0].ID != "pin" || points.Points[0].Coordinates[0] != -84.388 || points.Points[0].Coordinates[1] != 33.749 || points.Points[1].Score == nil || *points.Points[1].Score != 0 {
+	if len(points.Points) != 2 || len(points.PermitChoices) != 2 || points.Points[0].ID != "pin" || points.Points[0].Coordinates[0] != -84.388 || points.Points[0].Coordinates[1] != 33.749 {
 		t.Fatalf("points semantics: %s", body)
 	}
 	code, h, zipped := request(server, "/api/inspect/points", map[string]string{"Accept-Encoding": "gzip"})
@@ -212,6 +214,12 @@ func TestInspectionAPI(t *testing.T) {
 	code, _, notModified := request(server, "/api/inspect/points", map[string]string{"If-None-Match": etag})
 	if code != 304 || len(notModified) != 0 {
 		t.Fatal("conditional response")
+	}
+	for _, path := range []string{"/api/inspect/search?q=%00", "/api/inspect/search?permit=%FF", "/api/inspect/facilities/%00", "/api/inspect/facilities/%FF"} {
+		code, _, _ := request(server, path, nil)
+		if code != 400 {
+			t.Fatalf("invalid input %s: %d", path, code)
+		}
 	}
 	code, _, search := request(server, "/api/inspect/search?q=Missing", nil)
 	if code != 200 || !strings.Contains(string(search), `"id":"missing"`) || !strings.Contains(string(search), `"lastInspectionScore":null`) {
@@ -308,9 +316,9 @@ func TestInspectionAPI(t *testing.T) {
 	if err := downPB.Save(rating); err != nil {
 		t.Fatal(err)
 	}
-	code, _, _ = request(down, "/api/inspect/points", nil)
-	if code != 200 {
-		t.Fatalf("redis down points: %d", code)
+	code, downHeader, _ := request(down, "/api/inspect/points", nil)
+	if code != 200 || downHeader.Get("ETag") != h.Get("ETag") {
+		t.Fatalf("redis down points: %d, ETag changed without data change", code)
 	}
 	code, _, detail = request(down, "/api/inspect/facilities/pin", nil)
 	var live struct {
@@ -322,10 +330,12 @@ func TestInspectionAPI(t *testing.T) {
 	if err := json.Unmarshal(detail, &live); code != 200 || err != nil || live.Community.RatingCount != 1 || live.Community.RatingAverage == nil || *live.Community.RatingAverage != 4 {
 		t.Fatalf("redis down detail: %d %s", code, detail)
 	}
-	super, _ := start(adminURL, "")
-	code, _, _ = request(super, "/api/inspect/search", nil)
-	if code != 503 {
-		t.Fatalf("superuser not rejected: %d", code)
+	for _, db := range []string{adminURL, adminURL + "&role=ga_inspect_reader"} {
+		super, _ := start(db, "")
+		code, _, _ = request(super, "/api/inspect/search", nil)
+		if code != 503 {
+			t.Fatalf("superuser not rejected: %d", code)
+		}
 	}
 }
 
