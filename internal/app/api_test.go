@@ -55,7 +55,12 @@ func TestInspectionAPI(t *testing.T) {
 		if err := pb.Bootstrap(); err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { pb.ResetBootstrapState() })
+		t.Cleanup(func() {
+			if err := pb.OnTerminate().Trigger(&core.TerminateEvent{App: pb}); err != nil {
+				t.Errorf("terminate app: %v", err)
+			}
+			pb.ResetBootstrapState()
+		})
 		Register(pb)
 		router, err := apis.NewRouter(pb)
 		if err != nil {
