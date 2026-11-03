@@ -36,6 +36,7 @@ export function getDetail(id: string) { return get<Detail>(`/api/inspect/facilit
 export function errorMessage(error: unknown, action: string, restrictedRecord = false): string {
   if (typeof error === 'object' && error && 'status' in error) {
     const status = error.status
+    if (status === 503) return 'Inspection data is temporarily unavailable; posting is paused.'
     if (status === 403) return `Could not ${action}. Check your permissions and email verification.`
     if (status === 404) return restrictedRecord ? `Could not ${action}: not allowed or no longer exists.` : `Could not ${action}. The service or record is unavailable.`
     if (status === 400) return `Could not ${action}. Check your entries and try again.`
