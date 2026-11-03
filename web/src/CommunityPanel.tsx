@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import type { RecordModel } from 'pocketbase'
+import { ClientResponseError, type RecordModel } from 'pocketbase'
 import { pb, errorMessage, refreshAuth } from './api'
 import type { Contribution } from './types'
 
@@ -25,7 +25,10 @@ export function CommunityPanel({ facilityId, user, refresh }: { facilityId: stri
   }
   async function remove(kind: 'ratings' | 'comments', item: Item) {
     if (!window.confirm(`Remove this ${kind === 'ratings' ? 'rating' : 'comment'}?`)) return
-    try { await pb.collection(kind).delete(item.id); setMessage('Removed.'); updated() } catch (e) { setMessage(errorMessage(e, kind === 'ratings' ? 'remove the rating' : 'remove the comment', true)) }
+    try { await pb.collection(kind).delete(item.id); setMessage('Removed.'); updated() } catch (e) {
+      setMessage(errorMessage(e, kind === 'ratings' ? 'remove the rating' : 'remove the comment', true))
+      if (e instanceof ClientResponseError && e.status === 404) updated()
+    }
   }
   async function editComment(item: Item) {
     const body = window.prompt('Edit your comment:', item.body || '')

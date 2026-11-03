@@ -1,14 +1,11 @@
-import PocketBase, { BaseAuthStore } from 'pocketbase'
+import PocketBase, { BaseAuthStore, ClientResponseError } from 'pocketbase'
 import type { Detail, Facility, Snapshot } from './types'
 
 export const pb = new PocketBase('/')
 
 let pendingRefresh: Promise<void> | null = null
 export function refreshAuth(): Promise<void> {
-  if (!pb.authStore.isValid) {
-    pb.authStore.clear()
-    return Promise.resolve()
-  }
+  if (!pb.authStore.token) return Promise.resolve()
   if (!pendingRefresh) {
     const token = pb.authStore.token
     const store = new BaseAuthStore()
@@ -16,8 +13,8 @@ export function refreshAuth(): Promise<void> {
     const client = new PocketBase('/', store)
     pendingRefresh = client.collection('users').authRefresh().then(() => {
       if (pb.authStore.token === token) pb.authStore.save(store.token, store.record)
-    }).catch(() => {
-      if (pb.authStore.token === token) pb.authStore.clear()
+    }).catch((error: unknown) => {
+      if (error instanceof ClientResponseError && [401, 403, 404].includes(error.status) && pb.authStore.token === token) pb.authStore.clear()
     }).finally(() => { pendingRefresh = null })
   }
   return pendingRefresh

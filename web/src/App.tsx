@@ -88,7 +88,7 @@ export default function App() {
   useEffect(() => {
     const unsubscribe = pb.authStore.onChange(() => setUser(pb.authStore.record))
     void refreshAuth()
-    const onFocus = () => { if (pb.authStore.isValid) void refreshAuth() }
+    const onFocus = () => { if (pb.authStore.token) void refreshAuth() }
     window.addEventListener('focus', onFocus)
     return () => { unsubscribe(); window.removeEventListener('focus', onFocus) }
   }, [])
