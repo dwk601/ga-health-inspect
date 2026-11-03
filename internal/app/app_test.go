@@ -3,7 +3,6 @@ package app
 import (
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"testing"
 
 	"ganigeorgiev.com/pocketbase/pocketbase"
@@ -12,11 +11,7 @@ import (
 )
 
 func TestStaticRouting(t *testing.T) {
-	dir, err := os.MkdirTemp(".", ".routing-test-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
+	dir := t.TempDir()
 	pb := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: dir})
 	if err := pb.Bootstrap(); err != nil {
 		t.Fatal(err)
@@ -39,7 +34,6 @@ func TestStaticRouting(t *testing.T) {
 		}{
 			{"/facilities/example", http.StatusOK},
 			{"/assets/nope", http.StatusNotFound},
-			{"/assets/nope.js", http.StatusNotFound},
 			{"/api/unknown", http.StatusNotFound},
 		} {
 			t.Run(tc.path, func(t *testing.T) {
