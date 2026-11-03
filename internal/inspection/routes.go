@@ -155,7 +155,7 @@ func (s *service) points(e *core.RequestEvent) error {
 		queryCancel()
 	}
 	if err != nil {
-		if ctx.Err() != nil {
+		if e.Request.Context().Err() != nil {
 			return nil
 		}
 		e.App.Logger().Warn("Inspection source failed", "error", err)
@@ -167,12 +167,12 @@ func (s *service) points(e *core.RequestEvent) error {
 	if ok, err := s.cached(e, ctx, r, s.cache.metaKey(gen), false); ok {
 		return err
 	}
-	if ctx.Err() != nil {
+	if e.Request.Context().Err() != nil {
 		return nil
 	}
 	m, blob, err := s.cache.fill(ctx, s.store, gen, r.failed)
 	if err != nil {
-		if ctx.Err() != nil {
+		if e.Request.Context().Err() != nil {
 			return nil
 		}
 		e.App.Logger().Warn("Inspection fill failed", "error", err)
