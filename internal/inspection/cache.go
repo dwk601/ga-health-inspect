@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"math"
 	"os"
 	"regexp"
@@ -42,34 +43,38 @@ type pointFill struct {
 	err  error
 }
 
-func (c *pointsCache) fill(ctx context.Context, s *store, generation string) (metadata, []byte, error) {
+func (c *pointsCache) fill(ctx context.Context, s *store, generation string, cacheFailed bool) (metadata, []byte, error) {
 	c.mu.Lock()
-	if pending := c.filling[generation]; pending != nil {
-		c.mu.Unlock()
-		select {
-		case <-pending.done:
-			return pending.meta, pending.blob, pending.err
-		case <-ctx.Done():
-			return metadata{}, nil, ctx.Err()
+	pending := c.filling[generation]
+	if pending == nil {
+		pending = &pointFill{done: make(chan struct{})}
+		if c.filling == nil {
+			c.filling = make(map[string]*pointFill)
 		}
+		c.filling[generation] = pending
+		go func() {
+			fillCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+			defer cancel()
+			pending.meta, pending.blob, pending.err = s.fill(fillCtx)
+			if pending.err == nil {
+				(&cacheRequest{cache: c, failed: cacheFailed}).publish(fillCtx, pending.meta, pending.blob)
+			}
+			c.mu.Lock()
+			delete(c.filling, generation)
+			close(pending.done)
+			c.mu.Unlock()
+		}()
 	}
-	pending := &pointFill{done: make(chan struct{})}
-	if c.filling == nil {
-		c.filling = make(map[string]*pointFill)
+	c.mu.Unlock()
+	select {
+	case <-pending.done:
+		return pending.meta, pending.blob, pending.err
+	case <-ctx.Done():
+		return metadata{}, nil, ctx.Err()
 	}
-	c.filling[generation] = pending
-	c.mu.Unlock()
-	fillCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	pending.meta, pending.blob, pending.err = s.fill(fillCtx)
-	cancel()
-	c.mu.Lock()
-	delete(c.filling, generation)
-	close(pending.done)
-	c.mu.Unlock()
-	return pending.meta, pending.blob, pending.err
 }
 
-func newCache() *pointsCache {
+func newCache(logger *slog.Logger) *pointsCache {
 	environment := os.Getenv("APP_ENV")
 	if environment == "" {
 		environment = "default"
@@ -81,6 +86,7 @@ func newCache() *pointsCache {
 	}
 	opts, err := redis.ParseURL(url)
 	if err != nil {
+		logger.Warn("Invalid REDIS_URL; inspection cache disabled")
 		return c
 	}
 	opts.DialTimeout = 100 * time.Millisecond

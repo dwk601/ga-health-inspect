@@ -22,7 +22,12 @@ check: frontend require-project
 	@pgport=$$($(COMPOSE) port postgres 5432 | awk -F: '{print $$NF}'); redisport=$$($(COMPOSE) port redis 6379 | awk -F: '{print $$NF}'); \
 	DATABASE_URL="postgres://ga_inspect_reader:scratch-reader-only@127.0.0.1:$$pgport/health_scratch?sslmode=disable" REDIS_URL="redis://:scratch-redis-only@127.0.0.1:$$redisport/0" go test $(GO_PACKAGES)
 dev-api: build require-project
-	@pgport=$$($(COMPOSE) port postgres 5432 | awk -F: '{print $$NF}'); redisport=$$($(COMPOSE) port redis 6379 | awk -F: '{print $$NF}'); \
+	@set -e; \
+	if [ -f .env.local ]; then set -a; source .env.local; set +a; fi; \
+	if [ -n "$${PB_SUPERUSER_EMAIL:-}" ] && [ -n "$${PB_SUPERUSER_PASSWORD:-}" ]; then \
+		./server superuser upsert "$$PB_SUPERUSER_EMAIL" "$$PB_SUPERUSER_PASSWORD"; \
+	fi; \
+	pgport=$$($(COMPOSE) port postgres 5432 | awk -F: '{print $$NF}'); redisport=$$($(COMPOSE) port redis 6379 | awk -F: '{print $$NF}'); \
 	DATABASE_URL="postgres://ga_inspect_reader:scratch-reader-only@127.0.0.1:$$pgport/health_scratch?sslmode=disable" REDIS_URL="redis://:scratch-redis-only@127.0.0.1:$$redisport/0" ./server serve --http=127.0.0.1:8090
 
 dev-web:

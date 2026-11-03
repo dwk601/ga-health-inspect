@@ -19,7 +19,7 @@ type service struct {
 
 // Register adds read-only inspection routes without requiring either external service at startup.
 func Register(e *core.ServeEvent) {
-	s := &service{store: newStore(), cache: newCache()}
+	s := &service{store: newStore(e.App.Logger()), cache: newCache(e.App.Logger())}
 	e.App.OnTerminate().BindFunc(func(event *core.TerminateEvent) error {
 		if s.store.pool != nil {
 			s.store.pool.Close()
@@ -167,13 +167,12 @@ func (s *service) points(e *core.RequestEvent) error {
 	if ok, err := s.cached(e, ctx, r, s.cache.metaKey(gen), false); ok {
 		return err
 	}
-	m, blob, err := s.cache.fill(ctx, s.store, gen)
+	m, blob, err := s.cache.fill(ctx, s.store, gen, r.failed)
 	if err != nil {
 		if ok, err := s.cached(e, ctx, r, s.cache.prefix+"points:last-good", true); ok {
 			return err
 		}
 		return unavailable(e)
 	}
-	r.publish(ctx, m, blob)
 	return servePoints(e, m, blob, false)
 }

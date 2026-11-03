@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -13,13 +15,14 @@ import (
 
 type store struct{ pool *pgxpool.Pool }
 
-func newStore() *store {
+func newStore(logger *slog.Logger) *store {
 	url := os.Getenv("DATABASE_URL")
 	if url == "" {
 		return &store{}
 	}
 	config, err := pgxpool.ParseConfig(url)
 	if err != nil {
+		logger.Warn("Invalid DATABASE_URL; inspection source disabled")
 		return &store{}
 	}
 	config.MaxConns = 4
@@ -36,6 +39,7 @@ func newStore() *store {
 	}
 	pool, err := pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {
+		logger.Warn("Could not create inspection database pool; inspection source disabled")
 		return &store{}
 	}
 	return &store{pool}
@@ -56,18 +60,18 @@ func generation(ctx context.Context, q interface {
 	return t.UTC().Format("2006-01-02T15:04:05.000000Z"), nil
 }
 
-const facilityFields = `source_id, name, address, phone, permit_type, permit_number, last_inspection_date, last_inspection_score, google_places`
+const facilityFields = `source_id, name, address, phone, permit_type, permit_number, to_char(last_inspection_date, 'YYYY-MM-DD'), last_inspection_score, google_places`
 
 type facility struct {
-	ID                  string     `json:"id"`
-	Name                *string    `json:"name"`
-	Address             *string    `json:"address"`
-	Phone               *string    `json:"phone"`
-	PermitType          *string    `json:"permitType"`
-	PermitNumber        *string    `json:"permitNumber"`
-	LastInspectionDate  *time.Time `json:"lastInspectionDate"`
-	LastInspectionScore *float64   `json:"lastInspectionScore"`
-	GooglePlaces        *string    `json:"googlePlaces"`
+	ID                  string   `json:"id"`
+	Name                *string  `json:"name"`
+	Address             *string  `json:"address"`
+	Phone               *string  `json:"phone"`
+	PermitType          *string  `json:"permitType"`
+	PermitNumber        *string  `json:"permitNumber"`
+	LastInspectionDate  *string  `json:"lastInspectionDate"`
+	LastInspectionScore *float64 `json:"lastInspectionScore"`
+	GooglePlaces        *string  `json:"googlePlaces"`
 }
 
 func scanFacility(row interface{ Scan(...any) error }) (facility, error) {
@@ -80,7 +84,8 @@ func (s *store) search(ctx context.Context, query, permit string) ([]facility, e
 	if s.pool == nil {
 		return nil, errors.New("source unavailable")
 	}
-	rows, err := s.pool.Query(ctx, `SELECT `+facilityFields+` FROM public.facilities WHERE ($1 = '' OR name ILIKE '%' || $1 || '%' OR address ILIKE '%' || $1 || '%' OR source_id ILIKE '%' || $1 || '%') AND ($2 = '' OR permit_type = $2) ORDER BY name NULLS LAST, source_id LIMIT 100`, query, permit)
+	query = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
+	rows, err := s.pool.Query(ctx, `SELECT `+facilityFields+` FROM public.facilities WHERE ($1 = '' OR name ILIKE '%' || $1 || '%' ESCAPE E'\\' OR address ILIKE '%' || $1 || '%' ESCAPE E'\\' OR source_id ILIKE '%' || $1 || '%' ESCAPE E'\\') AND ($2 = '' OR permit_type = $2) ORDER BY name NULLS LAST, source_id LIMIT 100`, query, permit)
 	if err != nil {
 		return nil, err
 	}

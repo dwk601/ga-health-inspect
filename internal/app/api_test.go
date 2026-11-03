@@ -98,6 +98,69 @@ func TestInspectionAPI(t *testing.T) {
 		return res.StatusCode, res.Header, body
 	}
 	server := start(database, redisURL)
+	// Hold the source query so a second request can join the first fill before its caller cancels.
+	lock, err := admin.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lock.Rollback(context.Background()) })
+	if _, err := lock.Exec(ctx, `LOCK TABLE public.facilities IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatal(err)
+	}
+	leaderCtx, cancelLeader := context.WithCancel(ctx)
+	defer cancelLeader()
+	leaderRequest, err := http.NewRequestWithContext(leaderCtx, "GET", server.URL+"/api/inspect/points", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaderDone := make(chan struct{})
+	go func() {
+		defer close(leaderDone)
+		res, _ := http.DefaultClient.Do(leaderRequest)
+		if res != nil {
+			res.Body.Close()
+		}
+	}()
+	waitForConnections := func(minimum int) {
+		t.Helper()
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, err := admin.Exec(ctx, `SELECT pg_catalog.pg_stat_clear_snapshot()`); err != nil {
+				t.Fatal(err)
+			}
+			var total, blocked int
+			err := admin.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE wait_event_type = 'Lock') FROM pg_catalog.pg_stat_activity WHERE usename = 'ga_inspect_reader' AND datname = current_database()`).Scan(&total, &blocked)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if total >= minimum && blocked >= 1 {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatal("timed out waiting for inspection requests")
+	}
+	waitForConnections(1)
+	waiterDone := make(chan int, 1)
+	go func() {
+		res, err := http.Get(server.URL + "/api/inspect/points")
+		if err != nil {
+			waiterDone <- 0
+			return
+		}
+		defer res.Body.Close()
+		waiterDone <- res.StatusCode
+	}()
+	waitForConnections(2)
+	time.Sleep(50 * time.Millisecond)
+	cancelLeader()
+	<-leaderDone
+	if err := lock.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if status := <-waiterDone; status != http.StatusOK {
+		t.Fatalf("fill canceled with leader: %d", status)
+	}
 	code, header, body := request(server, "/api/inspect/points", nil)
 	if code != 200 {
 		t.Fatalf("points: %d %s", code, body)
@@ -142,8 +205,28 @@ func TestInspectionAPI(t *testing.T) {
 	if code != 200 || !strings.Contains(string(search), `"id":"missing"`) || !strings.Contains(string(search), `"lastInspectionScore":null`) {
 		t.Fatalf("search %d %s", code, search)
 	}
+	for _, query := range []string{"%", "_", `\`} {
+		code, _, body := request(server, "/api/inspect/search?q="+url.QueryEscape(query), nil)
+		var result struct {
+			Facilities []struct {
+				ID string `json:"id"`
+			} `json:"facilities"`
+		}
+		if err := json.Unmarshal(body, &result); code != 200 || err != nil || len(result.Facilities) != 1 || result.Facilities[0].ID != "123456789012345678" {
+			t.Fatalf("literal search %q: %d %s", query, code, body)
+		}
+	}
 	code, h, detail := request(server, "/api/inspect/facilities/pin", nil)
-	if code != 200 || h.Get("Cache-Control") != "no-store" || !strings.Contains(string(detail), `"id": "9007199254740993"`) && !strings.Contains(string(detail), `"id":"9007199254740993"`) || strings.Contains(string(detail), "superseded") || !strings.Contains(string(detail), "historical violation") {
+	var decoded struct {
+		Facility struct {
+			LastInspectionDate string `json:"lastInspectionDate"`
+		} `json:"facility"`
+		Inspections []struct {
+			ID string `json:"id"`
+		} `json:"inspections"`
+	}
+	err = json.Unmarshal(detail, &decoded)
+	if code != 200 || err != nil || h.Get("Cache-Control") != "no-store" || decoded.Facility.LastInspectionDate != "2025-02-01" || len(decoded.Inspections) != 2 || decoded.Inspections[1].ID != "9007199254740993" || strings.Contains(string(detail), "superseded") || !strings.Contains(string(detail), "historical violation") {
 		t.Fatalf("detail %d %s", code, detail)
 	}
 	code, _, detail = request(server, "/api/inspect/facilities/123456789012345678", nil)
