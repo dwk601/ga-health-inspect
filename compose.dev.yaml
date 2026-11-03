@@ -12,7 +12,7 @@ services:
       - ./dev/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
       - ./dev/readonly-role.sql:/docker-entrypoint-initdb.d/03-role.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U scratch_admin -d health_scratch"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U scratch_admin -d health_scratch"]
       interval: 2s
       timeout: 2s
       retries: 30

@@ -1,6 +1,8 @@
 web/node_modules/
 web/dist/
 pb_data/
-server
+/server
 .env
-web/.env
+.env.*
+!.env.example
+*.local

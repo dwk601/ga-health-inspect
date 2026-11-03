@@ -21,7 +21,7 @@ func Register(app core.App) {
 		spa := apis.Static(assets, true)
 		e.Router.GET("/{path...}", func(r *core.RequestEvent) error {
 			p := r.Request.URL.Path
-			if p == "/api" || strings.HasPrefix(p, "/api/") || path.Ext(p) != "" {
+			if p == "/api" || strings.HasPrefix(p, "/api/") || strings.HasPrefix(p, "/assets/") || path.Ext(p) != "" {
 				return static(r)
 			}
 			return spa(r)
