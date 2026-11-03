@@ -33,6 +33,8 @@ type pointsCache struct {
 	prefix  string
 	mu      sync.Mutex
 	filling map[string]*pointFill
+	blobKey string
+	blob    []byte
 	logger  *slog.Logger
 }
 
@@ -83,7 +85,7 @@ func newCache(logger *slog.Logger) *pointsCache {
 	if environment == "" {
 		environment = "default"
 	}
-	c := &pointsCache{prefix: "gahi:" + environment + ":v2:", logger: logger}
+	c := &pointsCache{prefix: "gahi:" + environment + ":v3:", logger: logger}
 	url := os.Getenv("REDIS_URL")
 	if url == "" {
 		return c
@@ -170,7 +172,6 @@ type point struct {
 }
 type snapshot struct {
 	Generation    string   `json:"generation"`
-	GeneratedAt   string   `json:"generatedAt"`
 	Points        []point  `json:"points"`
 	PermitChoices []string `json:"permitChoices"`
 }
@@ -192,7 +193,8 @@ func (s *store) fill(ctx context.Context) (metadata, []byte, error) {
 	if err != nil {
 		return metadata{}, nil, err
 	}
-	snap := snapshot{Generation: gen, GeneratedAt: time.Now().UTC().Format("2006-01-02T15:04:05.000000000Z"), Points: []point{}, PermitChoices: []string{}}
+	generatedAt := time.Now().UTC().Format("2006-01-02T15:04:05.000000000Z")
+	snap := snapshot{Generation: gen, Points: []point{}, PermitChoices: []string{}}
 	permits := map[string]bool{}
 	for rows.Next() {
 		var p point
@@ -226,15 +228,7 @@ func (s *store) fill(ctx context.Context) (metadata, []byte, error) {
 	if err != nil {
 		return metadata{}, nil, err
 	}
-	stable, err := json.Marshal(struct {
-		Generation    string   `json:"generation"`
-		Points        []point  `json:"points"`
-		PermitChoices []string `json:"permitChoices"`
-	}{snap.Generation, snap.Points, snap.PermitChoices})
-	if err != nil {
-		return metadata{}, nil, err
-	}
-	sum := sha256.Sum256(stable)
+	sum := sha256.Sum256(data)
 	digest := hex.EncodeToString(sum[:])
 	var buf bytes.Buffer
 	zw := gzip.NewWriter(&buf)
@@ -244,7 +238,7 @@ func (s *store) fill(ctx context.Context) (metadata, []byte, error) {
 	if err = zw.Close(); err != nil {
 		return metadata{}, nil, err
 	}
-	return metadata{Generation: gen, GeneratedAt: snap.GeneratedAt, ETag: `W/"` + digest + `"`, Blob: digest}, buf.Bytes(), nil
+	return metadata{Generation: gen, GeneratedAt: generatedAt, ETag: `W/"` + digest + `"`, Blob: digest}, buf.Bytes(), nil
 }
 
 // Publication checks both the generation and timestamp in a single Redis operation.

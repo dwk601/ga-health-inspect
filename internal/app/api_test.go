@@ -191,10 +191,13 @@ func TestInspectionAPI(t *testing.T) {
 			Coordinates []float64 `json:"coordinates"`
 		} `json:"points"`
 		PermitChoices []string `json:"permitChoices"`
-		GeneratedAt   string   `json:"generatedAt"`
+		GeneratedAt   *string  `json:"generatedAt"`
 	}
 	if err = json.Unmarshal(body, &points); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := time.Parse(time.RFC3339Nano, header.Get("X-Inspection-Generated-At")); err != nil || points.GeneratedAt != nil {
+		t.Fatalf("snapshot timestamp header/body: %v %s", err, body)
 	}
 	if len(points.Points) != 2 || len(points.PermitChoices) != 2 || points.Points[0].ID != "pin" || points.Points[0].Coordinates[0] != -84.388 || points.Points[0].Coordinates[1] != 33.749 {
 		t.Fatalf("points semantics: %s", body)
@@ -294,7 +297,7 @@ func TestInspectionAPI(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if code != 200 || h.Get("X-Inspection-Stale") != "true" || h.Get("Cache-Control") != "no-store" || h.Get("ETag") != "" || !bytes.Equal(staleBody, updated) {
+	if code != 200 || h.Get("X-Inspection-Stale") != "true" || h.Get("Cache-Control") != "no-store" || h.Get("ETag") != "" || h.Get("X-Inspection-Generated-At") == "" || !bytes.Equal(staleBody, updated) {
 		t.Fatalf("stale: %d %s", code, staleBody)
 	}
 	// A transient cache timeout followed by a blocked fill must retry the snapshot.
@@ -304,6 +307,61 @@ func TestInspectionAPI(t *testing.T) {
 	}
 	cache := redis.NewClient(opts)
 	defer cache.Close()
+	// Force identical snapshots to expire and rebuild, waiting for each publication.
+	keys, err := cache.Keys(ctx, "gahi:"+os.Getenv("APP_ENV")+":*:points:meta").Result()
+	if err != nil || len(keys) < 1 {
+		t.Fatalf("metadata discovery: %v %v", keys, err)
+	}
+	var metaKey string
+	for _, key := range keys {
+		b, _ := cache.Get(ctx, key).Bytes()
+		var m map[string]any
+		if json.Unmarshal(b, &m) == nil && m["etag"] == updatedETag {
+			metaKey = key
+		}
+	}
+	if metaKey == "" {
+		t.Fatal("current metadata missing")
+	}
+	before, err := cache.DBSize(ctx).Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		b, err := cache.Get(ctx, metaKey).Bytes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(b, &m); err != nil {
+			t.Fatal(err)
+		}
+		m["generatedAt"] = "2000-01-01T00:00:00.000000000Z"
+		b, _ = json.Marshal(m)
+		if err := cache.Set(ctx, metaKey, b, time.Hour).Err(); err != nil {
+			t.Fatal(err)
+		}
+		code, _, _ = request(server, "/api/inspect/points", nil)
+		if code != 200 {
+			t.Fatalf("rebuild: %d", code)
+		}
+		deadline := time.Now().Add(2 * time.Second)
+		for {
+			b, _ = cache.Get(ctx, metaKey).Bytes()
+			_ = json.Unmarshal(b, &m)
+			if m["generatedAt"] != "2000-01-01T00:00:00.000000000Z" {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("rebuild not published")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	after, err := cache.DBSize(ctx).Result()
+	if err != nil || after != before {
+		t.Fatalf("identical rebuilds grew cache: %d -> %d (%v)", before, after, err)
+	}
 	fillLock, err := admin.Begin(ctx)
 	if err != nil {
 		t.Fatal(err)

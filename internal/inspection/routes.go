@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -96,6 +97,7 @@ func matches(header, tag string) bool {
 func servePoints(e *core.RequestEvent, m metadata, blob []byte, stale bool) error {
 	h := e.Response.Header()
 	h.Set("Vary", "Accept-Encoding")
+	h.Set("X-Inspection-Generated-At", m.GeneratedAt)
 	if stale {
 		h.Set("Cache-Control", "no-store")
 		h.Set("Warning", `110 - "Response is stale"`)
@@ -119,6 +121,9 @@ func servePoints(e *core.RequestEvent, m metadata, blob []byte, stale bool) erro
 	h.Set("Content-Type", "application/json")
 	e.Response.WriteHeader(http.StatusOK)
 	_, err := e.Response.Write(blob)
+	if e.Request.Context().Err() != nil || errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNRESET) {
+		return nil
+	}
 	return err
 }
 func (s *service) cached(e *core.RequestEvent, ctx context.Context, r *cacheRequest, key string, stale bool) (bool, error) {
@@ -135,9 +140,20 @@ func (s *service) cached(e *core.RequestEvent, ctx context.Context, r *cacheRequ
 	if !stale && matches(e.Request.Header.Get("If-None-Match"), m.ETag) {
 		return true, servePoints(e, m, nil, stale)
 	}
-	blob, err := r.get(ctx, m.Blob, time.Second)
-	if err != nil {
-		return false, nil
+	s.cache.mu.Lock()
+	var blob []byte
+	if s.cache.blobKey == m.Blob {
+		blob = s.cache.blob
+	}
+	s.cache.mu.Unlock()
+	if blob == nil {
+		blob, err = r.get(ctx, m.Blob, time.Second)
+		if err != nil {
+			return false, nil
+		}
+		s.cache.mu.Lock()
+		s.cache.blobKey, s.cache.blob = m.Blob, blob
+		s.cache.mu.Unlock()
 	}
 	return true, servePoints(e, m, blob, stale)
 }

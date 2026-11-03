@@ -50,5 +50,11 @@ func configureSettings(app core.App) error {
 		s.SMTP.Username = os.Getenv("SMTP_USERNAME")
 		s.SMTP.Password = os.Getenv("SMTP_PASSWORD")
 	}
-	return nil
+	users, err := app.FindCollectionByNameOrId("users")
+	if err != nil {
+		return err
+	}
+	users.VerificationTemplate.Body = `<p>Thank you for joining {APP_NAME}.</p><p><a href="{APP_URL}/verify/{TOKEN}">Verify your email</a></p><p>If you didn't register, please ignore this email.</p><p>The {APP_NAME} team</p>`
+	users.ResetPasswordTemplate.Body = `<p>Reset your password for {APP_NAME}.</p><p><a href="{APP_URL}/reset-password/{TOKEN}">Reset password</a></p><p>If you didn't request this, please ignore this email.</p><p>The {APP_NAME} team</p>`
+	return app.Save(users)
 }

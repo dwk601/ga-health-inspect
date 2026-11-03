@@ -1,8 +1,9 @@
 SHELL := /bin/bash
-ETL_SCHEMA_PATH ?= $(HOME)/Personal/etl/ga_health_inspect/schema.sql
+ETL_SCHEMA_PATH ?= $(CURDIR)/../etl/ga_health_inspect/schema.sql
 export ETL_SCHEMA_PATH
 COMPOSE = docker compose -f compose.dev.yaml -p $(PROJECT)
 GO_PACKAGES = . ./internal/... ./web ./migrations
+SERVICE_URLS = DATABASE_URL="postgres://ga_inspect_reader:scratch-reader-only@127.0.0.1:$$pgport/health_scratch?sslmode=disable" REDIS_URL="redis://:scratch-redis-only@127.0.0.1:$$redisport/0"
 
 .PHONY: setup frontend build test vet check dev-api dev-web require-project db-up db-down services-check image smoke
 image:
@@ -17,14 +18,14 @@ build: frontend
 	go build -o server .
 test: frontend require-project
 	@pgport=$$($(COMPOSE) port postgres 5432 | awk -F: '{print $$NF}'); redisport=$$($(COMPOSE) port redis 6379 | awk -F: '{print $$NF}'); \
-	DATABASE_URL="postgres://ga_inspect_reader:scratch-reader-only@127.0.0.1:$$pgport/health_scratch?sslmode=disable" REDIS_URL="redis://:scratch-redis-only@127.0.0.1:$$redisport/0" go test $(GO_PACKAGES) $(if $(TEST),-run '$(TEST)',)
+	$(SERVICE_URLS) go test $(GO_PACKAGES) $(if $(TEST),-run '$(TEST)',)
 vet: frontend
 	go vet $(GO_PACKAGES)
 check: frontend require-project
 	npm --prefix web run check
 	go vet $(GO_PACKAGES)
 	@pgport=$$($(COMPOSE) port postgres 5432 | awk -F: '{print $$NF}'); redisport=$$($(COMPOSE) port redis 6379 | awk -F: '{print $$NF}'); \
-	DATABASE_URL="postgres://ga_inspect_reader:scratch-reader-only@127.0.0.1:$$pgport/health_scratch?sslmode=disable" REDIS_URL="redis://:scratch-redis-only@127.0.0.1:$$redisport/0" go test $(GO_PACKAGES)
+	$(SERVICE_URLS) go test $(GO_PACKAGES)
 dev-api: build require-project
 	@set -e; \
 	if [ -f .env.local ]; then set -a; source .env.local; set +a; fi; \
@@ -32,7 +33,7 @@ dev-api: build require-project
 		./server superuser upsert "$$PB_SUPERUSER_EMAIL" "$$PB_SUPERUSER_PASSWORD"; \
 	fi; \
 	pgport=$$($(COMPOSE) port postgres 5432 | awk -F: '{print $$NF}'); redisport=$$($(COMPOSE) port redis 6379 | awk -F: '{print $$NF}'); smtpport=$$($(COMPOSE) port mailpit 1025 | awk -F: '{print $$NF}'); \
-	DATABASE_URL="postgres://ga_inspect_reader:scratch-reader-only@127.0.0.1:$$pgport/health_scratch?sslmode=disable" REDIS_URL="redis://:scratch-redis-only@127.0.0.1:$$redisport/0" APP_URL="$${APP_URL:-http://127.0.0.1:8090}" SMTP_HOST="$${SMTP_HOST:-127.0.0.1}" SMTP_PORT="$${SMTP_PORT:-$$smtpport}" ./server serve --http=127.0.0.1:8090
+	$(SERVICE_URLS) APP_URL="$${APP_URL:-http://127.0.0.1:8090}" SMTP_HOST="$${SMTP_HOST:-127.0.0.1}" SMTP_PORT="$${SMTP_PORT:-$$smtpport}" ./server serve --http=127.0.0.1:8090
 
 dev-web:
 	npm --prefix web run dev
