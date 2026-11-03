@@ -27,7 +27,9 @@ async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
 export async function getPoints(): Promise<{ snapshot: Snapshot; stale: boolean }> {
   const response = await fetch('/api/inspect/points')
   if (!response.ok) throw new Error('Map data is unavailable. You can still search the directory.')
-  return { snapshot: await response.json() as Snapshot, stale: response.headers.get('X-Inspection-Stale') === 'true' }
+  const snapshot = await response.json() as Snapshot
+  snapshot.generatedAt = response.headers.get('X-Inspection-Generated-At') || snapshot.generatedAt || null
+  return { snapshot, stale: response.headers.get('X-Inspection-Stale') === 'true' }
 }
 export function search(q: string, permit: string, signal: AbortSignal) {
   return get<{ facilities: Facility[] }>(`/api/inspect/search?${new URLSearchParams({ q, permit })}`, signal)

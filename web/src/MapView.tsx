@@ -1,6 +1,29 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Map, MapClusterLayer, MapControls, MapPopup, useMap } from '@/components/ui/map'
 import type { Facility, Point } from './types'
+
+class MapErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  render() { return this.state.failed ? <MapFailure /> : this.props.children }
+}
+
+function MapFailure() {
+  return <p className="map-failure" role="status">The map could not be loaded. You can still search and view facility details.</p>
+}
+
+function MapLoadMonitor({ onLoaded, onFailure }: { onLoaded: () => void; onFailure: () => void }) {
+  const { map, isLoaded } = useMap()
+  useEffect(() => { if (isLoaded) onLoaded() }, [isLoaded, onLoaded])
+  useEffect(() => {
+    if (!map) return
+    const onError = () => { if (!map.loaded()) onFailure() }
+    map.on('error', onError)
+    map.getCanvas().addEventListener('webglcontextlost', onFailure)
+    return () => { map.off('error', onError); map.getCanvas().removeEventListener('webglcontextlost', onFailure) }
+  }, [map, onFailure])
+  return null
+}
 
 const georgiaBounds: [[number, number], [number, number]] = [[-85.61, 30.36], [-80.84, 35.0]]
 
@@ -54,11 +77,19 @@ function transformRequest(url: string) {
 export function MapView({ points, selected, onSelect, theme, detail, detailError }: { points: Point[]; selected: string | null; onSelect: (id: string | null) => void; theme: 'light' | 'dark'; detail: Facility | null; detailError: boolean }) {
   const data = useMemo<GeoJSON.FeatureCollection<GeoJSON.Point, { id: string }>>(() => ({ type: 'FeatureCollection', features: points.map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: p.coordinates }, properties: { id: p.id } })) }), [points])
   const point = points.find(p => p.id === selected)
-  return <div className="map-area"><Map bounds={georgiaBounds} fitBoundsOptions={{ padding: 20 }} theme={theme} transformRequest={transformRequest}>
+  const [failed, setFailed] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  useEffect(() => {
+    if (loaded) return
+    const timer = window.setTimeout(() => setFailed(true), 15000)
+    return () => window.clearTimeout(timer)
+  }, [loaded])
+  return <div className="map-area"><MapErrorBoundary>{failed ? <MapFailure /> : <Map bounds={georgiaBounds} fitBoundsOptions={{ padding: 20 }} theme={theme} transformRequest={transformRequest}>
+    <MapLoadMonitor onLoaded={() => setLoaded(true)} onFailure={() => setFailed(true)} />
     <FitGeorgia selected={selected} />
     <MapClusterLayer data={data} onPointClick={feature => onSelect(feature.properties.id)} />
     <SelectedLocation selected={selected} point={point} />
     <MapControls position="bottom-right" showZoom />
     {point && <MapPopup longitude={point.coordinates[0]} latitude={point.coordinates[1]} onClose={() => onSelect(null)} closeButton closeOnClick={false}><div className="map-popup">{detail ? <><strong>{detail.name || 'Unnamed facility'}</strong><p>Inspection score: {detail.lastInspectionScore ?? 'Not available'}</p></> : <p>{detailError ? 'Facility details unavailable.' : 'Loading facility…'}</p>}</div></MapPopup>}
-  </Map></div>
+  </Map>}</MapErrorBoundary></div>
 }

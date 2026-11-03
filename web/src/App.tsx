@@ -6,6 +6,7 @@ import { MapView } from './MapView'
 import { FacilityList } from './FacilityList'
 import { FacilityDetail } from './FacilityDetail'
 import { AuthPanel } from './AuthPanel'
+import { AccountLink } from './AccountLink'
 import type { Detail, Facility, Snapshot } from './types'
 
 function selectedFromURL() {
@@ -22,7 +23,8 @@ function useInspectionData(query: string, permit: string) {
   useEffect(() => {
     getPoints().then(({ snapshot: data, stale }) => {
       setSnapshot(data)
-      setMapMessage(stale ? `Showing an older map snapshot from ${new Date(data.generatedAt).toLocaleString()} because the inspection source is unavailable.` : '')
+      const generated = data.generatedAt && !Number.isNaN(Date.parse(data.generatedAt)) ? ` from ${new Date(data.generatedAt).toLocaleString()}` : ''
+      setMapMessage(stale ? `Showing an older map snapshot${generated} because the inspection source is unavailable.` : '')
     }).catch(error => setMapMessage(error.message))
   }, [])
 
@@ -73,6 +75,7 @@ function Directory({ query, setQuery, permit, setPermit, snapshot, facilities, s
 }
 
 export default function App() {
+  const [path, setPath] = useState(location.pathname)
   const [selected, setSelected] = useState<string | null>(selectedFromURL)
   const [restoreId, setRestoreId] = useState<string | null>(null)
   const [detailState, setDetailState] = useState<{ id: string; detail: Detail | null; error: string } | null>(null)
@@ -104,14 +107,22 @@ export default function App() {
   }, [])
   useEffect(() => { document.documentElement.classList.toggle('dark', theme === 'dark'); document.documentElement.style.colorScheme = theme }, [theme])
   useEffect(() => {
-    const handler = () => setSelected(selectedFromURL())
+    const handler = () => {
+      setPath(location.pathname)
+      const next = selectedFromURL()
+      if (!next && selected) setRestoreId(selected)
+      else if (next) setRestoreId(null)
+      setSelected(next)
+      if (next) setMobileMap(false)
+    }
     addEventListener('popstate', handler)
     return () => removeEventListener('popstate', handler)
-  }, [])
+  }, [selected])
 
   function select(id: string | null) {
     setRestoreId(id ? null : selected)
     history.pushState(null, '', id ? `/facilities/${encodeURIComponent(id)}` : '/')
+    setPath(location.pathname)
     setSelected(id)
     if (id) setMobileMap(false)
   }
@@ -120,6 +131,9 @@ export default function App() {
     setTheme(next)
     localStorage.setItem('theme', next)
   }
+  const accountRoute = path.match(/^\/(verify|reset-password)\/([^/]+)\/?$/)
+  if (accountRoute) return <AccountLink key={path} kind={accountRoute[1] as 'verify' | 'reset-password'} token={accountRoute[2]} />
+
   return <>
     <Header theme={theme} toggleTheme={toggleTheme} user={user} auth={auth} setAuth={setAuth} home={() => select(null)} />
     {auth && <AuthPanel onClose={() => setAuth(false)} />}
