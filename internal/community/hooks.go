@@ -3,7 +3,9 @@ package community
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"ganigeorgiev.com/pocketbase/pocketbase/core"
 )
@@ -11,10 +13,9 @@ import (
 // Register installs the user role protections and public author-name enrichment.
 func Register(app core.App) {
 	app.OnRecordCreateRequest("users").BindFunc(func(e *core.RecordRequestEvent) error {
-		if e.HasSuperuserAuth() {
-			return e.Next()
+		if e.Record.GetString("role") == "" {
+			e.Record.Set("role", "user")
 		}
-		e.Record.Set("role", "user")
 		return e.Next()
 	})
 	app.OnRecordUpdateRequest("users").BindFunc(func(e *core.RecordRequestEvent) error {
@@ -48,10 +49,15 @@ func Register(app core.App) {
 // RegisterFacilityValidation checks source existence before contribution writes.
 func RegisterFacilityValidation(app core.App, exists func(context.Context, string) (bool, error)) {
 	validate := func(e *core.RecordRequestEvent) error {
+		id := e.Record.GetString("facility_id")
+		if utf8.RuneCountInString(id) > 500 || strings.ContainsRune(id, '\x00') {
+			return e.BadRequestError("Invalid facility id", nil)
+		}
 		ctx, cancel := context.WithTimeout(e.Request.Context(), 3*time.Second)
 		defer cancel()
-		found, err := exists(ctx, e.Record.GetString("facility_id"))
+		found, err := exists(ctx, id)
 		if err != nil {
+			e.App.Logger().Error("Facility existence lookup failed", "error", err)
 			return e.Error(http.StatusServiceUnavailable, "Inspection data unavailable", nil)
 		}
 		if !found {

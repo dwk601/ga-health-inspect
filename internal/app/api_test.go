@@ -20,6 +20,41 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+func startTestServer(t *testing.T) (*httptest.Server, *pocketbase.PocketBase) {
+	t.Helper()
+	pb := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir()})
+	Register(pb)
+	if err := pb.Bootstrap(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := pb.OnTerminate().Trigger(&core.TerminateEvent{App: pb}); err != nil {
+			t.Errorf("terminate app: %v", err)
+		}
+		if err := pb.ResetBootstrapState(); err != nil {
+			t.Errorf("reset app: %v", err)
+		}
+	})
+	router, err := apis.NewRouter(pb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var server *httptest.Server
+	err = pb.OnServe().Trigger(&core.ServeEvent{App: pb, Router: router}, func(e *core.ServeEvent) error {
+		mux, err := e.Router.BuildMux()
+		if err != nil {
+			return err
+		}
+		server = httptest.NewServer(mux)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(server.Close)
+	return server, pb
+}
+
 func TestInspectionAPI(t *testing.T) {
 	database := os.Getenv("DATABASE_URL")
 	redisURL := os.Getenv("REDIS_URL")
@@ -51,35 +86,7 @@ func TestInspectionAPI(t *testing.T) {
 		t.Helper()
 		t.Setenv("DATABASE_URL", db)
 		t.Setenv("REDIS_URL", cache)
-		pb := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir()})
-		if err := pb.Bootstrap(); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() {
-			if err := pb.OnTerminate().Trigger(&core.TerminateEvent{App: pb}); err != nil {
-				t.Errorf("terminate app: %v", err)
-			}
-			pb.ResetBootstrapState()
-		})
-		Register(pb)
-		router, err := apis.NewRouter(pb)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var server *httptest.Server
-		err = pb.OnServe().Trigger(&core.ServeEvent{App: pb, Router: router}, func(e *core.ServeEvent) error {
-			mux, err := e.Router.BuildMux()
-			if err != nil {
-				return err
-			}
-			server = httptest.NewServer(mux)
-			return nil
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(server.Close)
-		return server, pb
+		return startTestServer(t)
 	}
 	request := func(server *httptest.Server, path string, headers map[string]string) (int, http.Header, []byte) {
 		t.Helper()
@@ -326,29 +333,7 @@ func TestCommunityPermissions(t *testing.T) {
 	if os.Getenv("DATABASE_URL") == "" {
 		t.Skip("scratch services required")
 	}
-	pb := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir()})
-	Register(pb)
-	if err := pb.Bootstrap(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = pb.OnTerminate().Trigger(&core.TerminateEvent{App: pb}); _ = pb.ResetBootstrapState() })
-	router, err := apis.NewRouter(pb)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var server *httptest.Server
-	err = pb.OnServe().Trigger(&core.ServeEvent{App: pb, Router: router}, func(e *core.ServeEvent) error {
-		mux, err := e.Router.BuildMux()
-		if err != nil {
-			return err
-		}
-		server = httptest.NewServer(mux)
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(server.Close)
+	server, pb := startTestServer(t)
 	request := func(method, path, token string, data any, want int) map[string]any {
 		t.Helper()
 		var body io.Reader
@@ -412,7 +397,8 @@ func TestCommunityPermissions(t *testing.T) {
 	other, otherToken := mkuser("Other", "user", true)
 	mod, modToken := mkuser("Moderator", "moderator", true)
 	admin, adminToken := mkuser("Admin", "admin", true)
-	_, unverifiedToken := mkuser("Unverified", "user", false)
+	unverified, unverifiedToken := mkuser("Unverified", "user", false)
+	_, unverifiedAdminToken := mkuser("UnverifiedAdmin", "admin", false)
 	superCol, err := pb.FindCollectionByNameOrId("_superusers")
 	if err != nil {
 		t.Fatal(err)
@@ -443,11 +429,22 @@ func TestCommunityPermissions(t *testing.T) {
 	request("PATCH", users+"/"+owner.Id, ownerToken, map[string]any{"role": "admin"}, 404)
 	request("PATCH", users+"/"+other.Id, modToken, map[string]any{"role": "admin"}, 404)
 	request("PATCH", users+"/"+admin.Id, adminToken, map[string]any{"role": "user"}, 404)
+	request("PATCH", users+"/"+other.Id, unverifiedAdminToken, map[string]any{"role": "moderator"}, 404)
 	request("PATCH", users+"/"+other.Id, adminToken, map[string]any{"role": "moderator", "name": "hacked"}, 400)
-	request("PATCH", users+"/"+other.Id, superToken, map[string]any{"role": "admin"}, 200)
+	request("PATCH", users+"/"+other.Id, adminToken, map[string]any{"name": "hacked"}, 400)
+	request("PATCH", users+"/"+other.Id, adminToken, map[string]any{"password": "newpassword1234", "passwordConfirm": "newpassword1234"}, 400)
+	request("PATCH", users+"/"+other.Id, superToken, map[string]any{"role": "admin", "verified": true}, 200)
+	moderator := request("POST", users, superToken, map[string]any{"email": "supercreated@example.test", "password": "password1234", "passwordConfirm": "password1234", "name": "Super Created", "role": "moderator"}, 200)
+	if moderator["role"] != "moderator" {
+		t.Fatalf("superuser-created role: %v", moderator)
+	}
+	defaultRole := request("POST", users, superToken, map[string]any{"email": "superdefault@example.test", "password": "password1234", "passwordConfirm": "password1234", "name": "Super Default"}, 200)
+	if defaultRole["role"] != "user" {
+		t.Fatalf("superuser default role: %v", defaultRole)
+	}
 	request("PATCH", users+"/"+other.Id, adminToken, map[string]any{"role": "user"}, 200)
 	rating := map[string]any{"owner": owner.Id, "facility_id": "missing", "rating": 4}
-	request("POST", ratings, unverifiedToken, rating, 400)
+	request("POST", ratings, unverifiedToken, map[string]any{"owner": unverified.Id, "facility_id": "missing", "rating": 4}, 400)
 	request("POST", ratings, otherToken, rating, 400)
 	invalid := map[string]any{"owner": owner.Id, "facility_id": "does-not-exist", "rating": 4}
 	request("POST", ratings, ownerToken, invalid, 400)
@@ -483,6 +480,20 @@ func TestCommunityPermissions(t *testing.T) {
 	request("PATCH", comments+"/"+cid, ownerToken, map[string]any{"body": "updated"}, 200)
 	request("DELETE", comments+"/"+cid, otherToken, nil, 404)
 	request("DELETE", comments+"/"+cid, modToken, nil, 204)
+	commentCollection, err := pb.FindCollectionByNameOrId("comments")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unverifiedComment := core.NewRecord(commentCollection)
+	unverifiedComment.Set("owner", unverified.Id)
+	unverifiedComment.Set("facility_id", "missing")
+	unverifiedComment.Set("body", "existing")
+	if err := pb.Save(unverifiedComment); err != nil {
+		t.Fatal(err)
+	}
+	request("PATCH", comments+"/"+unverifiedComment.Id, unverifiedToken, map[string]any{"body": "changed"}, 404)
+	request("DELETE", comments+"/"+unverifiedComment.Id, unverifiedToken, nil, 404)
+	request("DELETE", ratings+"/"+rid, unverifiedAdminToken, nil, 404)
 	detail := request("GET", "/api/inspect/facilities/missing", "", nil, 200)
 	aggregate := detail["community"].(map[string]any)
 	if aggregate["ratingCount"] != float64(1) || aggregate["ratingAverage"] != float64(5) {
@@ -499,31 +510,7 @@ func TestCommunityPermissions(t *testing.T) {
 
 	// A source outage blocks new and edited contributions, not reads or moderation.
 	t.Setenv("DATABASE_URL", "postgres://ga_inspect_reader:scratch-reader-only@127.0.0.1:1/health_scratch?sslmode=disable&connect_timeout=1")
-	down := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir()})
-	Register(down)
-	if err := down.Bootstrap(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_ = down.OnTerminate().Trigger(&core.TerminateEvent{App: down})
-		_ = down.ResetBootstrapState()
-	})
-	downRouter, err := apis.NewRouter(down)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = down.OnServe().Trigger(&core.ServeEvent{App: down, Router: downRouter}, func(e *core.ServeEvent) error {
-		mux, err := e.Router.BuildMux()
-		if err != nil {
-			return err
-		}
-		server = httptest.NewServer(mux)
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(server.Close)
+	server, down := startTestServer(t)
 	downUsers, err := down.FindCollectionByNameOrId("users")
 	if err != nil {
 		t.Fatal(err)
@@ -551,6 +538,9 @@ func TestCommunityPermissions(t *testing.T) {
 	downComment.Set("body", "existing")
 	if err := down.Save(downComment); err != nil {
 		t.Fatal(err)
+	}
+	for _, id := range []string{strings.Repeat("x", 501), "bad\x00id"} {
+		request("POST", comments, downToken, map[string]any{"owner": downOwner.Id, "facility_id": id, "body": "new"}, 400)
 	}
 	request("POST", comments, downToken, map[string]any{"owner": downOwner.Id, "facility_id": "missing", "body": "new"}, 503)
 	request("PATCH", comments+"/"+downComment.Id, downToken, map[string]any{"body": "edit"}, 503)

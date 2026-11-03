@@ -10,6 +10,10 @@ import (
 
 func configureSettings(app core.App) error {
 	s := app.Settings()
+	s.Meta.AppName = os.Getenv("APP_NAME")
+	if s.Meta.AppName == "" {
+		s.Meta.AppName = "GA Health Inspect"
+	}
 	if v := os.Getenv("APP_URL"); v != "" {
 		s.Meta.AppURL = v
 	}
