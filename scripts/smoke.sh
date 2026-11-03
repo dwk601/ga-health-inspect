@@ -51,7 +51,11 @@ html=$(curl -fsS "$base/facilities/example")
 asset=$(printf '%s' "$html" | grep -oE '/assets/[^" ]+\.js' | head -1 || true)
 [ -n "$asset" ] || { echo 'SPA asset not found' >&2; exit 1; }
 curl -fsS "$base$asset" >/dev/null
-for path in /api/unknown /assets/missing.js; do
+for path in /verify/header.payload.signature /reset-password/header.payload.signature; do
+  page=$(curl -fsS "$base$path")
+  [ "$page" = "$html" ] || { echo "Expected SPA index for $path" >&2; exit 1; }
+done
+for path in /api/unknown /assets/missing.js /nope.png; do
   status=$(curl -s -o /dev/null -w '%{http_code}' "$base$path")
   [ "$status" = 404 ] || { echo "Expected 404 for $path, got $status" >&2; exit 1; }
 done

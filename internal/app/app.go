@@ -68,7 +68,6 @@ func Register(app core.App) {
 			return err
 		}
 		static := apis.Static(assets, false)
-		spa := apis.Static(assets, true)
 		e.Router.GET("/{path...}", func(r *core.RequestEvent) error {
 			p := r.Request.URL.Path
 			if asset, ok := compressed[p]; ok {
@@ -86,11 +85,17 @@ func Register(app core.App) {
 			if p == "/index.html" {
 				r.Response.Header().Set("Cache-Control", "no-cache")
 			}
-			if p == "/api" || strings.HasPrefix(p, "/api/") || strings.HasPrefix(p, "/assets/") || path.Ext(p) != "" {
+			if strings.HasPrefix(p, "/api") || p == "/assets" || strings.HasPrefix(p, "/assets/") {
 				return static(r)
 			}
+			if name := strings.TrimPrefix(p, "/"); name != "" && !strings.Contains(name, "/") {
+				info, err := fs.Stat(assets, name)
+				if (err == nil && !info.IsDir()) || path.Ext(name) != "" {
+					return static(r)
+				}
+			}
 			r.Response.Header().Set("Cache-Control", "no-cache")
-			return spa(r)
+			return r.FileFS(assets, "index.html")
 		}).Bind(apis.SkipSuccessActivityLog())
 		return e.Next()
 	})
