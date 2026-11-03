@@ -1,16 +1,19 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Map, MapClusterLayer, MapControls, MapPopup, useMap } from '@/components/ui/map'
 import type { Point } from './types'
 
-function SelectedLocation({ point }: { point: Point | undefined }) {
+function SelectedLocation({ selected, point }: { selected: string | null; point: Point | undefined }) {
   const { map, isLoaded } = useMap()
+  const selection = useRef<{ id: string | null; moved: boolean }>({ id: null, moved: false })
   const longitude = point?.coordinates[0]
   const latitude = point?.coordinates[1]
   useEffect(() => {
-    if (map && isLoaded && longitude !== undefined && latitude !== undefined) {
+    if (selection.current.id !== selected) selection.current = { id: selected, moved: false }
+    if (selected && !selection.current.moved && map && isLoaded && longitude !== undefined && latitude !== undefined) {
+      selection.current.moved = true
       map.easeTo({ center: [longitude, latitude], zoom: Math.max(map.getZoom(), 12), duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 700 })
     }
-  }, [map, isLoaded, longitude, latitude])
+  }, [selected, map, isLoaded, longitude, latitude])
   return null
 }
 
@@ -30,7 +33,7 @@ export function MapView({ points, selected, onSelect, theme }: { points: Point[]
   const point = points.find(p => p.id === selected)
   return <div className="map-area"><Map center={[-83.5, 32.7]} zoom={6.4} theme={theme} transformRequest={transformRequest}>
     <MapClusterLayer data={data} onPointClick={feature => onSelect(feature.properties.id)} />
-    <SelectedLocation point={point} />
+    <SelectedLocation selected={selected} point={point} />
     <MapControls position="bottom-right" showZoom />
     {point && <MapPopup longitude={point.coordinates[0]} latitude={point.coordinates[1]} onClose={() => onSelect(null)} closeButton><div className="map-popup"><strong>{point.name || 'Unnamed facility'}</strong><p>Inspection score: {point.score ?? 'Not available'}</p></div></MapPopup>}
   </Map></div>
