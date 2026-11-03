@@ -1,12 +1,18 @@
-import { useMemo } from 'react'
-import * as maplibre from 'maplibre-gl'
-import { Map, MapClusterLayer, MapControls, MapPopup } from '@/components/ui/map'
+import { useEffect, useMemo } from 'react'
+import { Map, MapClusterLayer, MapControls, MapPopup, useMap } from '@/components/ui/map'
 import type { Point } from './types'
 
-// A same-origin blob module can import the registry's pinned remote worker under
-// worker-src blob:; a cross-origin Worker URL itself is blocked by browsers.
-const workerUrl = `https://unpkg.com/maplibre-gl@${maplibre.getVersion()}/dist/maplibre-gl-worker.mjs`
-maplibre.setWorkerUrl(URL.createObjectURL(new Blob([`import ${JSON.stringify(workerUrl)};`], { type: 'text/javascript' })))
+function SelectedLocation({ point }: { point: Point | undefined }) {
+  const { map, isLoaded } = useMap()
+  const longitude = point?.coordinates[0]
+  const latitude = point?.coordinates[1]
+  useEffect(() => {
+    if (map && isLoaded && longitude !== undefined && latitude !== undefined) {
+      map.easeTo({ center: [longitude, latitude], zoom: Math.max(map.getZoom(), 12), duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 700 })
+    }
+  }, [map, isLoaded, longitude, latitude])
+  return null
+}
 
 const key = import.meta.env.VITE_CARTO_KEY as string | undefined
 function transformRequest(url: string) {
@@ -24,6 +30,7 @@ export function MapView({ points, selected, onSelect, theme }: { points: Point[]
   const point = points.find(p => p.id === selected)
   return <div className="map-area"><Map center={[-83.5, 32.7]} zoom={6.4} theme={theme} transformRequest={transformRequest}>
     <MapClusterLayer data={data} onPointClick={feature => onSelect(feature.properties.id)} />
+    <SelectedLocation point={point} />
     <MapControls position="bottom-right" showZoom />
     {point && <MapPopup longitude={point.coordinates[0]} latitude={point.coordinates[1]} onClose={() => onSelect(null)} closeButton><div className="map-popup"><strong>{point.name || 'Unnamed facility'}</strong><p>Inspection score: {point.score ?? 'Not available'}</p></div></MapPopup>}
   </Map></div>

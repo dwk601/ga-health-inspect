@@ -15,7 +15,7 @@ export function AuthPanel({ onClose }: { onClose: () => void }) {
         await pb.collection('users').requestVerification(email)
         setMessage('Account created. Check your email to verify your account, then sign in.')
       } else { await pb.collection('users').authWithPassword(email, password); onClose() }
-    } catch (error) { setMessage(errorMessage(error)) } finally { setBusy(false) }
+    } catch (error) { setMessage(errorMessage(error, signup ? 'create your account or send verification' : 'sign in')) } finally { setBusy(false) }
   }
   return <div className="auth-panel"><div className="section-heading"><h2>{signup ? 'Create account' : 'Sign in'}</h2><button className="text-button" onClick={onClose}>Close</button></div><p>Verify your email before posting a rating or comment.</p><form onSubmit={submit}>
     {signup && <label htmlFor="auth-name">Name<input id="auth-name" name="name" autoComplete="name" maxLength={60} required /></label>}
