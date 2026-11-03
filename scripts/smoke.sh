@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+project=${PROJECT:?Set PROJECT to a unique ga-ui-we- project}
+[[ $project =~ ^ga-ui-we-[a-z0-9][a-z0-9_-]*$ ]] || { echo 'Invalid smoke project' >&2; exit 1; }
+override=$(mktemp "$PWD/.smoke-compose.XXXXXXXX.yaml")
+export DATABASE_URL='postgres://scratch:smoke-only@postgres:5432/scratch?sslmode=disable'
+export REDIS_PASSWORD='smoke-redis-only' REDIS_URL='redis://:smoke-redis-only@redis:6379/0'
+export APP_URL='http://127.0.0.1:8590' APP_NAME='Smoke' APP_ENV=smoke
+export SMTP_HOST='' SMTP_PORT='' SMTP_USERNAME='' SMTP_PASSWORD='' SMTP_TLS=false SMTP_SENDER_NAME='' SMTP_SENDER_ADDRESS=''
+export PB_ENCRYPTION_KEY='0123456789abcdef0123456789abcdef'
+compose=(docker compose -p "$project" -f docker-compose.yaml -f "$override")
+cleanup() {
+  status=$?
+  trap - EXIT
+  "${compose[@]}" down -v --rmi local --remove-orphans || status=1
+  rm -f "$override"
+  exit "$status"
+}
+trap cleanup EXIT
+cat > "$override" <<'YAML'
+services:
+  app:
+    ports: ["127.0.0.1:8590:8090"]
+  postgres:
+    image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+    environment:
+      POSTGRES_DB: scratch
+      POSTGRES_USER: scratch
+      POSTGRES_PASSWORD: smoke-only
+    networks: [inspection_source]
+networks:
+  inspection_source:
+    external: false
+    name: ${PROJECT}_smoke
+YAML
+export PROJECT=$project
+# Validate the unmodified production configuration without contacting its network.
+docker compose -p "$project" -f docker-compose.yaml config -q
+"${compose[@]}" up -d --build --wait
+app=$("${compose[@]}" ps -q app)
+redis=$("${compose[@]}" ps -q redis)
+base=http://127.0.0.1:8590
+curl -fsS "$base/api/health" >/dev/null
+html=$(curl -fsS "$base/facilities/example")
+asset=$(printf '%s' "$html" | grep -oE '/assets/[^" ]+\.js' | head -1)
+[[ -n $asset ]]
+curl -fsS "$base$asset" >/dev/null
+for path in /api/unknown /assets/missing.js; do
+  [[ $(curl -s -o /dev/null -w '%{http_code}' "$base$path") == 404 ]]
+done
+[[ $(docker inspect -f '{{.State.Health.Status}}' "$app") == healthy ]]
+[[ $(docker exec "$app" sh -c "awk '/^Uid:/ {print \$2}' /proc/1/status") != 0 ]]
+[[ $(docker exec "$redis" sh -c "awk '/^Uid:/ {print \$2}' /proc/1/status") != 0 ]]
+docker exec "$redis" redis-cli ping | grep -q NOAUTH
+docker exec -e REDISCLI_AUTH="$REDIS_PASSWORD" "$redis" redis-cli ping | grep -qx PONG
+docker exec "$app" /app/server superuser upsert smoke@example.test smoke-password-123 --dir=/app/pb_data --encryptionEnv=PB_ENCRYPTION_KEY >/dev/null
+user=$(curl -fsS "$base/api/collections/users/records" -H 'Content-Type: application/json' -d '{"email":"user@example.test","password":"smoke-password-123","passwordConfirm":"smoke-password-123","name":"Smoke User"}')
+id=$(printf '%s' "$user" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+"${compose[@]}" restart app
+for _ in {1..60}; do
+  if curl -fsS "$base/api/health" >/dev/null 2>&1; then break; fi
+  sleep 1
+done
+# Authentication proves the same user and password survived the restart.
+auth=$(curl -fsS "$base/api/collections/users/auth-with-password" -H 'Content-Type: application/json' -d '{"identity":"user@example.test","password":"smoke-password-123"}')
+printf '%s' "$auth" | python3 -c 'import json,sys; assert json.load(sys.stdin)["record"]["id"] == sys.argv[1]' "$id"
+echo 'Smoke checks passed.'

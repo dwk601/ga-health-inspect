@@ -4,7 +4,11 @@ export ETL_SCHEMA_PATH
 COMPOSE = docker compose -f compose.dev.yaml -p $(PROJECT)
 GO_PACKAGES = . ./internal/... ./web ./migrations
 
-.PHONY: setup frontend build test vet check dev-api dev-web require-project db-up db-down services-check
+.PHONY: setup frontend build test vet check dev-api dev-web require-project db-up db-down services-check image smoke
+image: require-project
+	docker compose -p $(PROJECT) -f docker-compose.yaml build app
+smoke: require-project
+	PROJECT=$(PROJECT) bash scripts/smoke.sh
 setup:
 	npm --prefix web ci
 frontend:

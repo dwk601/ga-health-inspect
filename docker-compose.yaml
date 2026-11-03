@@ -1,0 +1,43 @@
+services:
+  app:
+    build: .
+    expose: ["8090"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+      APP_URL: ${APP_URL:?APP_URL is required}
+      APP_NAME: ${APP_NAME}
+      APP_ENV: ${APP_ENV}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USERNAME: ${SMTP_USERNAME}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_TLS: ${SMTP_TLS}
+      SMTP_SENDER_NAME: ${SMTP_SENDER_NAME}
+      SMTP_SENDER_ADDRESS: ${SMTP_SENDER_ADDRESS}
+      PB_ENCRYPTION_KEY: ${PB_ENCRYPTION_KEY:?PB_ENCRYPTION_KEY is required}
+    volumes:
+      - pb_data:/app/pb_data
+    networks: [inspection_source]
+    deploy:
+      replicas: 1
+  redis:
+    image: redis:8.10.3-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    entrypoint: ["/bin/sh", "-c"]
+    command: ['exec docker-entrypoint.sh redis-server --requirepass "$$REDIS_PASSWORD" --save "" --appendonly no --maxmemory 256mb --maxmemory-policy allkeys-lru']
+    tmpfs: [/data]
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -qx PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [inspection_source]
+volumes:
+  pb_data:
+networks:
+  inspection_source:
+    external: true
+    name: iejqjmufmnpmpyswfznrgzr2
