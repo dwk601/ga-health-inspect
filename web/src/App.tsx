@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { RecordModel } from 'pocketbase'
 import { MapPinned, Moon, Sun } from 'lucide-react'
-import { pb, getPoints, search } from './api'
+import { pb, getPoints, search, refreshAuth } from './api'
 import { MapView } from './MapView'
 import { FacilityList } from './FacilityList'
 import { FacilityDetail } from './FacilityDetail'
@@ -85,7 +85,13 @@ export default function App() {
     const stored = localStorage.getItem('theme')
     return stored === 'light' || stored === 'dark' ? stored : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
   })
-  useEffect(() => pb.authStore.onChange(() => setUser(pb.authStore.record)), [])
+  useEffect(() => {
+    const unsubscribe = pb.authStore.onChange(() => setUser(pb.authStore.record))
+    void refreshAuth()
+    const onFocus = () => { if (pb.authStore.isValid) void refreshAuth() }
+    window.addEventListener('focus', onFocus)
+    return () => { unsubscribe(); window.removeEventListener('focus', onFocus) }
+  }, [])
   useEffect(() => { document.documentElement.classList.toggle('dark', theme === 'dark'); document.documentElement.style.colorScheme = theme }, [theme])
   useEffect(() => {
     const handler = () => setSelected(selectedFromURL())

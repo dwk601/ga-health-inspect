@@ -1,7 +1,27 @@
-import PocketBase from 'pocketbase'
+import PocketBase, { BaseAuthStore } from 'pocketbase'
 import type { Detail, Facility, Snapshot } from './types'
 
 export const pb = new PocketBase('/')
+
+let pendingRefresh: Promise<void> | null = null
+export function refreshAuth(): Promise<void> {
+  if (!pb.authStore.isValid) {
+    pb.authStore.clear()
+    return Promise.resolve()
+  }
+  if (!pendingRefresh) {
+    const token = pb.authStore.token
+    const store = new BaseAuthStore()
+    store.save(token, pb.authStore.record)
+    const client = new PocketBase('/', store)
+    pendingRefresh = client.collection('users').authRefresh().then(() => {
+      if (pb.authStore.token === token) pb.authStore.save(store.token, store.record)
+    }).catch(() => {
+      if (pb.authStore.token === token) pb.authStore.clear()
+    }).finally(() => { pendingRefresh = null })
+  }
+  return pendingRefresh
+}
 async function get<T>(url: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(url, { signal })
   if (!response.ok) throw new Error(response.status === 404 ? 'This facility could not be found.' : 'Inspection data is unavailable. Please try again.')
@@ -16,11 +36,11 @@ export function search(q: string, permit: string, signal: AbortSignal) {
   return get<{ facilities: Facility[] }>(`/api/inspect/search?${new URLSearchParams({ q, permit })}`, signal)
 }
 export function getDetail(id: string) { return get<Detail>(`/api/inspect/facilities/${encodeURIComponent(id)}`) }
-export function errorMessage(error: unknown, action: string): string {
+export function errorMessage(error: unknown, action: string, restrictedRecord = false): string {
   if (typeof error === 'object' && error && 'status' in error) {
     const status = error.status
     if (status === 403) return `Could not ${action}. Check your permissions and email verification.`
-    if (status === 404) return `Could not ${action}. The service or record is unavailable.`
+    if (status === 404) return restrictedRecord ? `Could not ${action}: not allowed or no longer exists.` : `Could not ${action}. The service or record is unavailable.`
     if (status === 400) return `Could not ${action}. Check your entries and try again.`
   }
   return `Could not ${action}. Please try again.`

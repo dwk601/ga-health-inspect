@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { pb, errorMessage } from './api'
+import { pb, errorMessage, refreshAuth } from './api'
 
 export function AuthPanel({ onClose }: { onClose: () => void }) {
   const [signup, setSignup] = useState(false)
@@ -14,7 +14,12 @@ export function AuthPanel({ onClose }: { onClose: () => void }) {
         await pb.collection('users').create({ name: data.get('name'), email, password, passwordConfirm: password })
         await pb.collection('users').requestVerification(email)
         setMessage('Account created. Check your email to verify your account, then sign in.')
-      } else { await pb.collection('users').authWithPassword(email, password); onClose() }
+      } else {
+        await pb.collection('users').authWithPassword(email, password)
+        await refreshAuth()
+        if (!pb.authStore.isValid) throw new Error('Session refresh failed')
+        onClose()
+      }
     } catch (error) { setMessage(errorMessage(error, signup ? 'create your account or send verification' : 'sign in')) } finally { setBusy(false) }
   }
   return <div className="auth-panel"><div className="section-heading"><h2>{signup ? 'Create account' : 'Sign in'}</h2><button className="text-button" onClick={onClose}>Close</button></div><p>Verify your email before posting a rating or comment.</p><form onSubmit={submit}>
