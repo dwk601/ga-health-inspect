@@ -54,7 +54,12 @@ func configureSettings(app core.App) error {
 	if err != nil {
 		return err
 	}
-	users.VerificationTemplate.Body = `<p>Thank you for joining {APP_NAME}.</p><p><a href="{APP_URL}/verify/{TOKEN}">Verify your email</a></p><p>If you didn't register, please ignore this email.</p><p>The {APP_NAME} team</p>`
-	users.ResetPasswordTemplate.Body = `<p>Reset your password for {APP_NAME}.</p><p><a href="{APP_URL}/reset-password/{TOKEN}">Reset password</a></p><p>If you didn't request this, please ignore this email.</p><p>The {APP_NAME} team</p>`
+	verification := `<p>Thank you for joining {APP_NAME}.</p><p><a href="{APP_URL}/verify/{TOKEN}">Verify your email</a></p><p>If you didn't register, please ignore this email.</p><p>The {APP_NAME} team</p>`
+	reset := `<p>Reset your password for {APP_NAME}.</p><p><a href="{APP_URL}/reset-password/{TOKEN}">Reset password</a></p><p>If you didn't request this, please ignore this email.</p><p>The {APP_NAME} team</p>`
+	if users.VerificationTemplate.Body == verification && users.ResetPasswordTemplate.Body == reset {
+		return nil
+	}
+	users.VerificationTemplate.Body = verification
+	users.ResetPasswordTemplate.Body = reset
 	return app.Save(users)
 }

@@ -12,19 +12,9 @@ func init() {
 			if err != nil {
 				return err
 			}
-			index := "CREATE INDEX idx_" + name + "_facility_id ON " + name + " (facility_id)"
-			found := false
-			for _, existing := range c.Indexes {
-				if existing == index {
-					found = true
-					break
-				}
-			}
-			if !found {
-				c.Indexes = append(c.Indexes, index)
-				if err := app.Save(c); err != nil {
-					return err
-				}
+			c.Indexes = append(c.Indexes, "CREATE INDEX IF NOT EXISTS idx_"+name+"_facility_id ON "+name+" (facility_id)")
+			if err := app.Save(c); err != nil {
+				return err
 			}
 		}
 		return nil

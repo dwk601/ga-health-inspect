@@ -28,7 +28,7 @@ export async function getPoints(): Promise<{ snapshot: Snapshot; stale: boolean 
   const response = await fetch('/api/inspect/points')
   if (!response.ok) throw new Error('Map data is unavailable. You can still search the directory.')
   const snapshot = await response.json() as Snapshot
-  snapshot.generatedAt = response.headers.get('X-Inspection-Generated-At') || snapshot.generatedAt || null
+  snapshot.generatedAt = response.headers.get('X-Inspection-Generated-At') || null
   return { snapshot, stale: response.headers.get('X-Inspection-Stale') === 'true' }
 }
 export function search(q: string, permit: string, signal: AbortSignal) {

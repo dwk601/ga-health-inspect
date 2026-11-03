@@ -154,6 +154,16 @@ p {
   width: min(100% - 2rem, 30rem);
   margin: 3rem auto;
 }
+.account-link h1 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  margin-bottom: 1rem;
+}
+.account-link > a {
+  display: inline-block;
+  margin-top: 1rem;
+}
 .account-link button {
   padding: 0.65rem 1rem;
   border: 1px solid var(--primary);

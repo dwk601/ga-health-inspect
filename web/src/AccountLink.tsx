@@ -1,8 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { pb } from './api'
 
-let verification: { token: string; result: Promise<boolean> } | null = null
-
 export function AccountLink({ kind, token }: { kind: 'verify' | 'reset-password'; token: string }) {
   const [message, setMessage] = useState('')
   const [success, setSuccess] = useState(false)
@@ -10,11 +8,8 @@ export function AccountLink({ kind, token }: { kind: 'verify' | 'reset-password'
 
   useEffect(() => {
     if (kind !== 'verify') return
-    if (verification?.token !== token) {
-      verification = { token, result: pb.collection('users').confirmVerification(token).then(() => true, () => false) }
-    }
     let active = true
-    void verification.result.then(ok => {
+    void pb.collection('users').confirmVerification(token).then(() => true, () => false).then(ok => {
       if (!active) return
       setSuccess(ok)
       setMessage(ok ? 'Your email is verified. You can now sign in.' : 'This verification link is invalid or expired. Request a new verification email.')

@@ -323,7 +323,7 @@ func TestInspectionAPI(t *testing.T) {
 	if metaKey == "" {
 		t.Fatal("current metadata missing")
 	}
-	before, err := cache.DBSize(ctx).Result()
+	before, err := cache.Keys(ctx, "gahi:"+os.Getenv("APP_ENV")+":*").Result()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,9 +358,9 @@ func TestInspectionAPI(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
-	after, err := cache.DBSize(ctx).Result()
-	if err != nil || after != before {
-		t.Fatalf("identical rebuilds grew cache: %d -> %d (%v)", before, after, err)
+	after, err := cache.Keys(ctx, "gahi:"+os.Getenv("APP_ENV")+":*").Result()
+	if err != nil || len(after) != len(before) {
+		t.Fatalf("identical rebuilds grew cache: %d -> %d (%v)", len(before), len(after), err)
 	}
 	fillLock, err := admin.Begin(ctx)
 	if err != nil {

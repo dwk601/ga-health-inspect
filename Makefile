@@ -1,5 +1,5 @@
 SHELL := /bin/bash
-ETL_SCHEMA_PATH ?= $(CURDIR)/../etl/ga_health_inspect/schema.sql
+ETL_SCHEMA_PATH ?= $(if $(wildcard $(CURDIR)/../etl/ga_health_inspect/schema.sql),$(CURDIR)/../etl/ga_health_inspect/schema.sql,$(HOME)/Personal/etl/ga_health_inspect/schema.sql)
 export ETL_SCHEMA_PATH
 COMPOSE = docker compose -f compose.dev.yaml -p $(PROJECT)
 GO_PACKAGES = . ./internal/... ./web ./migrations
