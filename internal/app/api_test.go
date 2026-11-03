@@ -47,7 +47,7 @@ func TestInspectionAPI(t *testing.T) {
 		t.Fatal("reader can write")
 	}
 	reader.Close(ctx)
-	start := func(db, cache string) *httptest.Server {
+	start := func(db, cache string) (*httptest.Server, *pocketbase.PocketBase) {
 		t.Helper()
 		t.Setenv("DATABASE_URL", db)
 		t.Setenv("REDIS_URL", cache)
@@ -79,7 +79,7 @@ func TestInspectionAPI(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(server.Close)
-		return server
+		return server, pb
 	}
 	request := func(server *httptest.Server, path string, headers map[string]string) (int, http.Header, []byte) {
 		t.Helper()
@@ -102,7 +102,7 @@ func TestInspectionAPI(t *testing.T) {
 		}
 		return res.StatusCode, res.Header, body
 	}
-	server := start(database, redisURL)
+	server, _ := start(database, redisURL)
 	// Hold the source query so a second request can join the first fill before its caller cancels.
 	lock, err := admin.Begin(ctx)
 	if err != nil {
@@ -267,28 +267,293 @@ func TestInspectionAPI(t *testing.T) {
 		t.Fatalf("generation did not invalidate: %d", code)
 	}
 	deadDB := "postgres://ga_inspect_reader:scratch-reader-only@127.0.0.1:1/health_scratch?sslmode=disable&connect_timeout=1"
-	stale := start(deadDB, redisURL)
+	stale, _ := start(deadDB, redisURL)
 	code, h, staleBody := request(stale, "/api/inspect/points", nil)
 	if code != 200 || h.Get("X-Inspection-Stale") != "true" || !bytes.Equal(staleBody, updated) {
 		t.Fatalf("stale: %d %s", code, staleBody)
 	}
-	cold := start(deadDB, "redis://127.0.0.1:1/0")
+	cold, _ := start(deadDB, "redis://127.0.0.1:1/0")
 	code, _, _ = request(cold, "/api/inspect/points", nil)
 	if code != 503 {
 		t.Fatalf("cold: %d", code)
 	}
-	down := start(database, "redis://127.0.0.1:1/0")
+	down, downPB := start(database, "redis://127.0.0.1:1/0")
+	users, err := downPB.FindCollectionByNameOrId("users")
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := core.NewRecord(users)
+	owner.SetEmail("visitor@example.test")
+	owner.SetPassword("password1234")
+	owner.Set("name", "Visitor")
+	owner.Set("role", "user")
+	if err := downPB.Save(owner); err != nil {
+		t.Fatal(err)
+	}
+	ratings, err := downPB.FindCollectionByNameOrId("ratings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rating := core.NewRecord(ratings)
+	rating.Set("owner", owner.Id)
+	rating.Set("facility_id", "pin")
+	rating.Set("rating", 4)
+	if err := downPB.Save(rating); err != nil {
+		t.Fatal(err)
+	}
 	code, _, _ = request(down, "/api/inspect/points", nil)
 	if code != 200 {
 		t.Fatalf("redis down points: %d", code)
 	}
-	code, _, _ = request(down, "/api/inspect/facilities/pin", nil)
-	if code != 200 {
-		t.Fatalf("redis down detail: %d", code)
+	code, _, detail = request(down, "/api/inspect/facilities/pin", nil)
+	var live struct {
+		Community struct {
+			RatingAverage *float64 `json:"ratingAverage"`
+			RatingCount   int      `json:"ratingCount"`
+		} `json:"community"`
 	}
-	super := start(adminURL, "")
+	if err := json.Unmarshal(detail, &live); code != 200 || err != nil || live.Community.RatingCount != 1 || live.Community.RatingAverage == nil || *live.Community.RatingAverage != 4 {
+		t.Fatalf("redis down detail: %d %s", code, detail)
+	}
+	super, _ := start(adminURL, "")
 	code, _, _ = request(super, "/api/inspect/search", nil)
 	if code != 503 {
 		t.Fatalf("superuser not rejected: %d", code)
 	}
+}
+
+func TestCommunityPermissions(t *testing.T) {
+	if os.Getenv("DATABASE_URL") == "" {
+		t.Skip("scratch services required")
+	}
+	pb := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir()})
+	Register(pb)
+	if err := pb.Bootstrap(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pb.OnTerminate().Trigger(&core.TerminateEvent{App: pb}); _ = pb.ResetBootstrapState() })
+	router, err := apis.NewRouter(pb)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var server *httptest.Server
+	err = pb.OnServe().Trigger(&core.ServeEvent{App: pb, Router: router}, func(e *core.ServeEvent) error {
+		mux, err := e.Router.BuildMux()
+		if err != nil {
+			return err
+		}
+		server = httptest.NewServer(mux)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(server.Close)
+	request := func(method, path, token string, data any, want int) map[string]any {
+		t.Helper()
+		var body io.Reader
+		if data != nil {
+			b, err := json.Marshal(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body = bytes.NewReader(b)
+		}
+		req, err := http.NewRequest(method, server.URL+path, body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			req.Header.Set("Authorization", token)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		b, err := io.ReadAll(res.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.StatusCode != want {
+			t.Fatalf("%s %s: got %d want %d: %s", method, path, res.StatusCode, want, b)
+		}
+		result := map[string]any{}
+		if len(b) > 0 {
+			if err := json.Unmarshal(b, &result); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return result
+	}
+	mkuser := func(name, role string, verified bool) (*core.Record, string) {
+		t.Helper()
+		col, err := pb.FindCollectionByNameOrId("users")
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := core.NewRecord(col)
+		r.SetEmail(name + "@example.test")
+		r.SetPassword("password1234")
+		r.Set("name", name)
+		r.Set("role", role)
+		r.SetVerified(verified)
+		if err := pb.Save(r); err != nil {
+			t.Fatal(err)
+		}
+		token, err := r.NewAuthToken()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r, token
+	}
+	owner, ownerToken := mkuser("Owner", "user", true)
+	other, otherToken := mkuser("Other", "user", true)
+	mod, modToken := mkuser("Moderator", "moderator", true)
+	admin, adminToken := mkuser("Admin", "admin", true)
+	_, unverifiedToken := mkuser("Unverified", "user", false)
+	superCol, err := pb.FindCollectionByNameOrId("_superusers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	super := core.NewRecord(superCol)
+	super.SetEmail("super@example.test")
+	super.SetPassword("password1234")
+	if err := pb.Save(super); err != nil {
+		t.Fatal(err)
+	}
+	superToken, err := super.NewAuthToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	users := "/api/collections/users/records"
+	ratings := "/api/collections/ratings/records"
+	comments := "/api/collections/comments/records"
+	signup := map[string]any{"email": "signup@example.test", "password": "password1234", "passwordConfirm": "password1234", "name": "Signup", "role": "admin"}
+	request("POST", users, "", signup, 400)
+	delete(signup, "role")
+	signup["role+"] = "admin"
+	request("POST", users, "", signup, 400)
+	delete(signup, "role+")
+	created := request("POST", users, "", signup, 200)
+	if created["role"] != "user" {
+		t.Fatalf("signup role: %v", created)
+	}
+	request("PATCH", users+"/"+owner.Id, ownerToken, map[string]any{"role": "admin"}, 404)
+	request("PATCH", users+"/"+other.Id, modToken, map[string]any{"role": "admin"}, 404)
+	request("PATCH", users+"/"+admin.Id, adminToken, map[string]any{"role": "user"}, 404)
+	request("PATCH", users+"/"+other.Id, adminToken, map[string]any{"role": "moderator", "name": "hacked"}, 400)
+	request("PATCH", users+"/"+other.Id, superToken, map[string]any{"role": "admin"}, 200)
+	request("PATCH", users+"/"+other.Id, adminToken, map[string]any{"role": "user"}, 200)
+	rating := map[string]any{"owner": owner.Id, "facility_id": "missing", "rating": 4}
+	request("POST", ratings, unverifiedToken, rating, 400)
+	request("POST", ratings, otherToken, rating, 400)
+	invalid := map[string]any{"owner": owner.Id, "facility_id": "does-not-exist", "rating": 4}
+	request("POST", ratings, ownerToken, invalid, 400)
+	for _, value := range []any{0, 6, 2.5} {
+		request("POST", ratings, ownerToken, map[string]any{"owner": owner.Id, "facility_id": "missing", "rating": value}, 400)
+	}
+	r := request("POST", ratings, ownerToken, rating, 200)
+	rid := r["id"].(string)
+	if r["authorName"] != "Owner" {
+		t.Fatalf("author enrichment: %v", r)
+	}
+	request("POST", ratings, ownerToken, rating, 400)
+	request("PATCH", ratings+"/"+rid, ownerToken, map[string]any{"facility_id": "pin"}, 404)
+	request("PATCH", ratings+"/"+rid, ownerToken, map[string]any{"owner": other.Id}, 404)
+	request("PATCH", ratings+"/"+rid, modToken, map[string]any{"rating": 1}, 404)
+	request("PATCH", ratings+"/"+rid, ownerToken, map[string]any{"created": "2000-01-01 00:00:00.000Z"}, 400)
+	request("PATCH", ratings+"/"+rid, ownerToken, map[string]any{"rating": 5}, 200)
+	c := request("POST", comments, ownerToken, map[string]any{"owner": owner.Id, "facility_id": "missing", "body": "hello"}, 200)
+	cid := c["id"].(string)
+	list := request("GET", comments, "", nil, 200)
+	items := list["items"].([]any)
+	item := items[0].(map[string]any)
+	if item["authorName"] != "Owner" || item["email"] != nil || item["expand"] != nil {
+		t.Fatalf("public fields: %v", item)
+	}
+	expanded := request("GET", comments+"?expand=owner", "", nil, 200)
+	if fields, ok := expanded["items"].([]any)[0].(map[string]any)["expand"].(map[string]any); ok && fields["owner"] != nil {
+		t.Fatalf("private owner expansion: %v", expanded)
+	}
+	request("GET", users+"/"+owner.Id, "", nil, 404)
+	request("PATCH", comments+"/"+cid, ownerToken, map[string]any{"body": strings.Repeat("x", 2001)}, 400)
+	request("PATCH", comments+"/"+cid, otherToken, map[string]any{"body": "hacked"}, 404)
+	request("PATCH", comments+"/"+cid, ownerToken, map[string]any{"body": "updated"}, 200)
+	request("DELETE", comments+"/"+cid, otherToken, nil, 404)
+	request("DELETE", comments+"/"+cid, modToken, nil, 204)
+	detail := request("GET", "/api/inspect/facilities/missing", "", nil, 200)
+	aggregate := detail["community"].(map[string]any)
+	if aggregate["ratingCount"] != float64(1) || aggregate["ratingAverage"] != float64(5) {
+		t.Fatalf("aggregate: %v", aggregate)
+	}
+	request("PATCH", users+"/"+mod.Id, adminToken, map[string]any{"role": "user"}, 200)
+	request("DELETE", ratings+"/"+rid, modToken, nil, 404)
+	request("DELETE", ratings+"/"+rid, adminToken, nil, 204)
+	detail = request("GET", "/api/inspect/facilities/missing", "", nil, 200)
+	aggregate = detail["community"].(map[string]any)
+	if aggregate["ratingCount"] != float64(0) || aggregate["ratingAverage"] != nil {
+		t.Fatalf("aggregate after delete: %v", aggregate)
+	}
+
+	// A source outage blocks new and edited contributions, not reads or moderation.
+	t.Setenv("DATABASE_URL", "postgres://ga_inspect_reader:scratch-reader-only@127.0.0.1:1/health_scratch?sslmode=disable&connect_timeout=1")
+	down := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir()})
+	Register(down)
+	if err := down.Bootstrap(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = down.OnTerminate().Trigger(&core.TerminateEvent{App: down})
+		_ = down.ResetBootstrapState()
+	})
+	downRouter, err := apis.NewRouter(down)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = down.OnServe().Trigger(&core.ServeEvent{App: down, Router: downRouter}, func(e *core.ServeEvent) error {
+		mux, err := e.Router.BuildMux()
+		if err != nil {
+			return err
+		}
+		server = httptest.NewServer(mux)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(server.Close)
+	downUsers, err := down.FindCollectionByNameOrId("users")
+	if err != nil {
+		t.Fatal(err)
+	}
+	downOwner := core.NewRecord(downUsers)
+	downOwner.SetEmail("offline@example.test")
+	downOwner.SetPassword("password1234")
+	downOwner.Set("name", "Offline")
+	downOwner.Set("role", "user")
+	downOwner.SetVerified(true)
+	if err := down.Save(downOwner); err != nil {
+		t.Fatal(err)
+	}
+	downToken, err := downOwner.NewAuthToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	downComments, err := down.FindCollectionByNameOrId("comments")
+	if err != nil {
+		t.Fatal(err)
+	}
+	downComment := core.NewRecord(downComments)
+	downComment.Set("owner", downOwner.Id)
+	downComment.Set("facility_id", "missing")
+	downComment.Set("body", "existing")
+	if err := down.Save(downComment); err != nil {
+		t.Fatal(err)
+	}
+	request("POST", comments, downToken, map[string]any{"owner": downOwner.Id, "facility_id": "missing", "body": "new"}, 503)
+	request("PATCH", comments+"/"+downComment.Id, downToken, map[string]any{"body": "edit"}, 503)
+	request("GET", comments+"/"+downComment.Id, "", nil, 200)
+	request("DELETE", comments+"/"+downComment.Id, downToken, nil, 204)
 }

@@ -2,7 +2,7 @@ SHELL := /bin/bash
 ETL_SCHEMA_PATH ?= $(HOME)/Personal/etl/ga_health_inspect/schema.sql
 export ETL_SCHEMA_PATH
 COMPOSE = docker compose -f compose.dev.yaml -p $(PROJECT)
-GO_PACKAGES = . ./internal/... ./web
+GO_PACKAGES = . ./internal/... ./web ./migrations
 
 .PHONY: setup frontend build test vet check dev-api dev-web require-project db-up db-down services-check
 setup:
@@ -27,8 +27,8 @@ dev-api: build require-project
 	if [ -n "$${PB_SUPERUSER_EMAIL:-}" ] && [ -n "$${PB_SUPERUSER_PASSWORD:-}" ]; then \
 		./server superuser upsert "$$PB_SUPERUSER_EMAIL" "$$PB_SUPERUSER_PASSWORD"; \
 	fi; \
-	pgport=$$($(COMPOSE) port postgres 5432 | awk -F: '{print $$NF}'); redisport=$$($(COMPOSE) port redis 6379 | awk -F: '{print $$NF}'); \
-	DATABASE_URL="postgres://ga_inspect_reader:scratch-reader-only@127.0.0.1:$$pgport/health_scratch?sslmode=disable" REDIS_URL="redis://:scratch-redis-only@127.0.0.1:$$redisport/0" ./server serve --http=127.0.0.1:8090
+	pgport=$$($(COMPOSE) port postgres 5432 | awk -F: '{print $$NF}'); redisport=$$($(COMPOSE) port redis 6379 | awk -F: '{print $$NF}'); smtpport=$$($(COMPOSE) port mailpit 1025 | awk -F: '{print $$NF}'); \
+	DATABASE_URL="postgres://ga_inspect_reader:scratch-reader-only@127.0.0.1:$$pgport/health_scratch?sslmode=disable" REDIS_URL="redis://:scratch-redis-only@127.0.0.1:$$redisport/0" APP_URL="$${APP_URL:-http://127.0.0.1:8090}" SMTP_HOST="$${SMTP_HOST:-127.0.0.1}" SMTP_PORT="$${SMTP_PORT:-$$smtpport}" ./server serve --http=127.0.0.1:8090
 
 dev-web:
 	npm --prefix web run dev

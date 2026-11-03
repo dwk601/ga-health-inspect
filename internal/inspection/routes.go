@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"ga-health-inspect/internal/community"
+	"ganigeorgiev.com/pocketbase/dbx"
 	"ganigeorgiev.com/pocketbase/pocketbase/core"
 	"github.com/jackc/pgx/v5"
 )
@@ -20,6 +22,7 @@ type service struct {
 // Register adds read-only inspection routes without requiring either external service at startup.
 func Register(e *core.ServeEvent) {
 	s := &service{store: newStore(e.App.Logger()), cache: newCache(e.App.Logger())}
+	community.RegisterFacilityValidation(e.App, s.store.exists)
 	e.App.OnTerminate().BindFunc(func(event *core.TerminateEvent) error {
 		if s.store.pool != nil {
 			s.store.pool.Close()
@@ -65,6 +68,10 @@ func (s *service) detail(e *core.RequestEvent) error {
 	}
 	if err != nil {
 		return unavailable(e)
+	}
+	err = e.App.DB().NewQuery(`SELECT avg(rating) AS ratingAverage, count(*) AS ratingCount FROM ratings WHERE facility_id = {:id}`).Bind(dbx.Params{"id": id}).One(&result.Community)
+	if err != nil {
+		return e.InternalServerError("Community data unavailable", err)
 	}
 	return e.JSON(http.StatusOK, result)
 }

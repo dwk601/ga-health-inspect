@@ -100,7 +100,28 @@ func (s *store) search(ctx context.Context, query, permit string) ([]facility, e
 	}
 	return result, rows.Err()
 }
-func (s *store) detail(ctx context.Context, id string) (any, error) {
+
+type detailResult struct {
+	Facility    facility           `json:"facility"`
+	Inspections []json.RawMessage  `json:"inspections"`
+	Community   communityAggregate `json:"community"`
+}
+
+type communityAggregate struct {
+	RatingAverage *float64 `db:"ratingAverage" json:"ratingAverage"`
+	RatingCount   int      `db:"ratingCount" json:"ratingCount"`
+}
+
+func (s *store) exists(ctx context.Context, id string) (bool, error) {
+	if s.pool == nil {
+		return false, errors.New("source unavailable")
+	}
+	var exists bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.facilities WHERE source_id=$1)`, id).Scan(&exists)
+	return exists, err
+}
+
+func (s *store) detail(ctx context.Context, id string) (*detailResult, error) {
 	if s.pool == nil {
 		return nil, errors.New("source unavailable")
 	}
@@ -124,8 +145,5 @@ func (s *store) detail(ctx context.Context, id string) (any, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	return struct {
-		Facility    facility          `json:"facility"`
-		Inspections []json.RawMessage `json:"inspections"`
-	}{f, inspections}, nil
+	return &detailResult{Facility: f, Inspections: inspections}, nil
 }
