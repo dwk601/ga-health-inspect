@@ -4,6 +4,7 @@ import (
 	"path"
 	"strings"
 
+	"ga-health-inspect/internal/inspection"
 	"ga-health-inspect/web"
 	"ganigeorgiev.com/pocketbase/pocketbase/apis"
 	"ganigeorgiev.com/pocketbase/pocketbase/core"
@@ -16,6 +17,7 @@ func Register(app core.App) {
 			e.Response.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://unpkg.com; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com; connect-src 'self' https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com; font-src 'self' https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
 			return e.Next()
 		})
+		inspection.Register(e)
 		assets := web.Assets()
 		static := apis.Static(assets, false)
 		spa := apis.Static(assets, true)
