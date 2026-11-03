@@ -1,0 +1,6 @@
+web/node_modules/
+web/dist/
+pb_data/
+server
+.env
+web/.env

@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+:root { --background: #fff; --foreground: #20323e; --primary: #164d78; --primary-foreground: #fff; --muted: #e9f2f8; --muted-foreground: #526a7a; --border: #d4e1e9; --card: #fff; --card-foreground: #20323e; --popover: #fff; --popover-foreground: #20323e; --accent: #e9f2f8; --accent-foreground: #20323e; --ring: #164d78; --input: #d4e1e9; --destructive: #b42318; --radius: 0.5rem; }
+.dark { --background: #102332; --foreground: #edf5fa; --primary: #a3d5f4; --primary-foreground: #102332; --muted: #203b4f; --muted-foreground: #bad0df; --border: #38576b; --card: #173043; --card-foreground: #edf5fa; --popover: #173043; --popover-foreground: #edf5fa; --accent: #203b4f; --accent-foreground: #edf5fa; --ring: #a3d5f4; --input: #38576b; }
+@theme inline { --color-background: var(--background); --color-foreground: var(--foreground); --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground); --color-muted: var(--muted); --color-muted-foreground: var(--muted-foreground); --color-border: var(--border); --color-card: var(--card); --color-card-foreground: var(--card-foreground); --color-popover: var(--popover); --color-popover-foreground: var(--popover-foreground); --color-accent: var(--accent); --color-accent-foreground: var(--accent-foreground); --color-ring: var(--ring); --color-input: var(--input); --color-destructive: var(--destructive); }
+body { margin: 0; background: var(--background); color: var(--foreground); font-family: sans-serif; }
+
+@layer base {
+  .maplibregl-popup-content {
+    @apply bg-transparent! shadow-none! p-0! rounded-none!; }
+  .maplibregl-popup-tip {
+    @apply hidden!; }
+  .maplibregl-ctrl-attrib {
+    @apply bg-background! text-muted-foreground! border-border! rounded-md! border! shadow-sm!; }
+  .maplibregl-ctrl-attrib a {
+    @apply text-muted-foreground!; }
+  .maplibregl-ctrl-attrib a:hover {
+    @apply text-foreground!; }
+  .maplibregl-ctrl-attrib-button {
+    @apply bg-transparent! dark:invert; } }
