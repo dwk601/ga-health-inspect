@@ -7,7 +7,7 @@ tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/ga-ui-smoke.XXXXXXXX")
 override=$tmpdir/compose.yaml
 export DATABASE_URL='postgres://scratch:smoke-only@postgres:5432/scratch?sslmode=disable'
 export REDIS_PASSWORD='smoke-redis-only'
-export APP_URL='http://127.0.0.1:8590' APP_NAME='Smoke' APP_ENV=smoke
+export APP_URL='http://app:8090' APP_NAME='Smoke' APP_ENV=smoke
 export SMTP_HOST='' SMTP_PORT='' SMTP_USERNAME='' SMTP_PASSWORD='' SMTP_TLS=false SMTP_SENDER_NAME='' SMTP_SENDER_ADDRESS=''
 export PB_ENCRYPTION_KEY='0123456789abcdef0123456789abcdef'
 compose=(docker compose -p "$project" -f docker-compose.yaml -f "$override")
@@ -44,16 +44,19 @@ redis=$("${compose[@]}" ps -q redis)
 base="http://$("${compose[@]}" port app 8090)"
 curl -fsS "$base/api/health" >/dev/null
 html=$(curl -fsS "$base/facilities/example")
-asset=$(printf '%s' "$html" | grep -oE '/assets/[^" ]+\.js' | head -1)
-[[ -n $asset ]]
+asset=$(printf '%s' "$html" | grep -oE '/assets/[^" ]+\.js' | head -1 || true)
+[ -n "$asset" ] || { echo 'SPA asset not found' >&2; exit 1; }
 curl -fsS "$base$asset" >/dev/null
 for path in /api/unknown /assets/missing.js; do
-  [[ $(curl -s -o /dev/null -w '%{http_code}' "$base$path") == 404 ]]
+  status=$(curl -s -o /dev/null -w '%{http_code}' "$base$path")
+  [ "$status" = 404 ] || { echo "Expected 404 for $path, got $status" >&2; exit 1; }
 done
-[[ $(docker inspect -f '{{.State.Health.Status}}' "$app") == healthy ]]
+health=$(docker inspect -f '{{.State.Health.Status}}' "$app")
+[ "$health" = healthy ] || { echo "App is not healthy: $health" >&2; exit 1; }
 app_uid=$(docker exec "$app" sh -c "awk '/^Uid:/ {print \$2}' /proc/1/status")
 redis_uid=$(docker exec "$redis" sh -c "awk '/^Uid:/ {print \$2}' /proc/1/status")
-[[ $app_uid =~ ^[1-9][0-9]*$ && $redis_uid =~ ^[1-9][0-9]*$ ]]
+[[ $app_uid =~ ^[1-9][0-9]*$ ]] || { echo "App process is not non-root: $app_uid" >&2; exit 1; }
+[[ $redis_uid =~ ^[1-9][0-9]*$ ]] || { echo "Redis process is not non-root: $redis_uid" >&2; exit 1; }
 docker exec "$redis" redis-cli ping | grep -q NOAUTH
 docker exec -e REDISCLI_AUTH="$REDIS_PASSWORD" "$redis" redis-cli ping | grep -qx PONG
 docker exec "$app" /app/server superuser upsert smoke@example.test smoke-password-123 --dir=/app/pb_data --encryptionEnv=PB_ENCRYPTION_KEY >/dev/null
