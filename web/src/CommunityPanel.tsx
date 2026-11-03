@@ -21,7 +21,7 @@ export function CommunityPanel({ facilityId, user, refresh }: { facilityId: stri
       if (kind === 'ratings' && own) await pb.collection(kind).update(own.id, { rating: Number(data.get('rating')) })
       else await pb.collection(kind).create({ owner: user?.id, facility_id: facilityId, ...(kind === 'ratings' ? { rating: Number(data.get('rating')) } : { body: data.get('body') }) })
       form.reset(); setMessage('Saved.'); updated()
-    } catch (error) { setMessage(errorMessage(error, kind === 'ratings' ? 'save your rating' : 'post your comment', kind === 'ratings' && !!own)); void refreshAuth() }
+    } catch (error) { setMessage(errorMessage(error, kind === 'ratings' ? 'save your rating' : 'post your comment', kind === 'ratings' && !!own, true)); void refreshAuth() }
   }
   async function remove(kind: 'ratings' | 'comments', item: Item) {
     if (!window.confirm(`Remove this ${kind === 'ratings' ? 'rating' : 'comment'}?`)) return
@@ -34,7 +34,7 @@ export function CommunityPanel({ facilityId, user, refresh }: { facilityId: stri
     const body = window.prompt('Edit your comment:', item.body || '')
     if (body === null || body === item.body) return
     if (!body.trim() || body.length > 2000) { setMessage('Comments must contain 1–2000 characters.'); return }
-    try { await pb.collection('comments').update(item.id, { body }); setMessage('Comment updated.'); updated() } catch (e) { setMessage(errorMessage(e, 'update your comment', true)) }
+    try { await pb.collection('comments').update(item.id, { body }); setMessage('Comment updated.'); updated() } catch (e) { setMessage(errorMessage(e, 'update your comment', true, true)) }
   }
   async function role(e: FormEvent<HTMLFormElement>) {
     e.preventDefault(); const data = new FormData(e.currentTarget)

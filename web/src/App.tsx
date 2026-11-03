@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { RecordModel } from 'pocketbase'
 import { MapPinned, Moon, Sun } from 'lucide-react'
-import { pb, getPoints, search, refreshAuth } from './api'
+import { pb, getPoints, getDetail, search, refreshAuth } from './api'
 import { MapView } from './MapView'
 import { FacilityList } from './FacilityList'
 import { FacilityDetail } from './FacilityDetail'
 import { AuthPanel } from './AuthPanel'
-import type { Facility, Snapshot } from './types'
+import type { Detail, Facility, Snapshot } from './types'
 
 function selectedFromURL() {
   const match = location.pathname.match(/^\/facilities\/(.+)$/)
@@ -22,7 +22,7 @@ function useInspectionData(query: string, permit: string) {
   useEffect(() => {
     getPoints().then(({ snapshot: data, stale }) => {
       setSnapshot(data)
-      if (stale) setMapMessage(`Showing an older map snapshot from ${new Date(data.generatedAt).toLocaleString()} because the inspection source is unavailable.`)
+      setMapMessage(stale ? `Showing an older map snapshot from ${new Date(data.generatedAt).toLocaleString()} because the inspection source is unavailable.` : '')
     }).catch(error => setMapMessage(error.message))
   }, [])
 
@@ -75,6 +75,16 @@ function Directory({ query, setQuery, permit, setPermit, snapshot, facilities, s
 export default function App() {
   const [selected, setSelected] = useState<string | null>(selectedFromURL)
   const [restoreId, setRestoreId] = useState<string | null>(null)
+  const [detailState, setDetailState] = useState<{ id: string; detail: Detail | null; error: string } | null>(null)
+  const [detailVersion, setDetailVersion] = useState(0)
+  const loadDetail = useCallback(() => setDetailVersion(v => v + 1), [])
+  useEffect(() => {
+    if (!selected) return
+    let active = true
+    getDetail(selected).then(detail => { if (active) setDetailState({ id: selected, detail, error: '' }) }).catch(error => { if (active) setDetailState({ id: selected, detail: null, error: error.message }) })
+    return () => { active = false }
+  }, [selected, detailVersion])
+  const currentDetail = detailState?.id === selected ? detailState : null
   const [query, setQuery] = useState('')
   const [permit, setPermit] = useState('')
   const { facilities, snapshot, points, mapMessage, searchMessage } = useInspectionData(query, permit)
@@ -116,12 +126,12 @@ export default function App() {
     <main className="workspace">
       <div className="mobile-switch"><button aria-pressed={!mobileMap} onClick={() => setMobileMap(false)}>List</button><button aria-pressed={mobileMap} onClick={() => setMobileMap(true)}>Map</button></div>
       <aside className={`sidebar ${mobileMap ? 'mobile-hidden' : ''}`}>
-        {selected ? <FacilityDetail key={selected} id={selected} onClose={() => select(null)} user={user} /> :
+        {selected ? <FacilityDetail key={selected} id={selected} onClose={() => select(null)} user={user} detail={currentDetail?.detail ?? null} error={currentDetail?.error ?? ''} load={loadDetail} /> :
           <Directory query={query} setQuery={setQuery} permit={permit} setPermit={setPermit} snapshot={snapshot} facilities={facilities} searchMessage={searchMessage} restoreId={restoreId} select={select} />}
       </aside>
       <section className={`map-panel ${mobileMap ? '' : 'mobile-hidden'}`} aria-label="Facility map">
         {mapMessage && <p className="map-message" role="status">{mapMessage}</p>}
-        <MapView points={points} selected={selected} onSelect={select} theme={theme} />
+        <MapView points={points} selected={selected} onSelect={select} theme={theme} detail={currentDetail?.detail?.facility ?? null} detailError={!!currentDetail?.error} />
       </section>
     </main>
   </>

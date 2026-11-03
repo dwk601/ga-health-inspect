@@ -33,10 +33,10 @@ export function search(q: string, permit: string, signal: AbortSignal) {
   return get<{ facilities: Facility[] }>(`/api/inspect/search?${new URLSearchParams({ q, permit })}`, signal)
 }
 export function getDetail(id: string) { return get<Detail>(`/api/inspect/facilities/${encodeURIComponent(id)}`) }
-export function errorMessage(error: unknown, action: string, restrictedRecord = false): string {
+export function errorMessage(error: unknown, action: string, restrictedRecord = false, contributionWrite = false): string {
   if (typeof error === 'object' && error && 'status' in error) {
     const status = error.status
-    if (status === 503) return 'Inspection data is temporarily unavailable; posting is paused.'
+    if (status === 503 && contributionWrite) return 'Inspection data is temporarily unavailable; posting is paused.'
     if (status === 403) return `Could not ${action}. Check your permissions and email verification.`
     if (status === 404) return restrictedRecord ? `Could not ${action}: not allowed or no longer exists.` : `Could not ${action}. The service or record is unavailable.`
     if (status === 400) return `Could not ${action}. Check your entries and try again.`

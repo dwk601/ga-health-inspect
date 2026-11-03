@@ -3,40 +3,22 @@ package app
 import (
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"io/fs"
 	"mime"
 	"net/http"
 	"path"
-	"strconv"
 	"strings"
 	"time"
 
 	"ga-health-inspect/internal/community"
+	"ga-health-inspect/internal/httpencoding"
 	"ga-health-inspect/internal/inspection"
 	_ "ga-health-inspect/migrations"
 	"ga-health-inspect/web"
 	"ganigeorgiev.com/pocketbase/pocketbase/apis"
 	"ganigeorgiev.com/pocketbase/pocketbase/core"
 )
-
-func acceptsGzip(header string) bool {
-	for _, part := range strings.Split(header, ",") {
-		fields := strings.Split(part, ";")
-		if strings.TrimSpace(fields[0]) == "gzip" {
-			for _, field := range fields[1:] {
-				field = strings.TrimSpace(field)
-				if strings.HasPrefix(field, "q=") {
-					q, err := strconv.ParseFloat(strings.TrimPrefix(field, "q="), 64)
-					if err != nil || q <= 0 {
-						return false
-					}
-				}
-			}
-			return true
-		}
-	}
-	return false
-}
 
 // Register installs the embedded application without shadowing PocketBase APIs.
 func Register(app core.App) {
@@ -52,7 +34,11 @@ func Register(app core.App) {
 		})
 		inspection.Register(e)
 		assets := web.Assets()
-		compressed := make(map[string][]byte)
+		type asset struct {
+			blob        []byte
+			contentType string
+		}
+		compressed := make(map[string]asset)
 		if err := fs.WalkDir(assets, "assets", func(name string, entry fs.DirEntry, err error) error {
 			if err != nil || entry.IsDir() {
 				return err
@@ -69,7 +55,14 @@ func Register(app core.App) {
 			if err = writer.Close(); err != nil {
 				return err
 			}
-			compressed["/"+name] = buf.Bytes()
+			contentType := mime.TypeByExtension(path.Ext(name))
+			if path.Ext(name) == ".ttf" {
+				contentType = "font/ttf"
+			}
+			if contentType == "" {
+				contentType = http.DetectContentType(data)
+			}
+			compressed["/"+name] = asset{buf.Bytes(), contentType}
 			return nil
 		}); err != nil {
 			return err
@@ -78,13 +71,15 @@ func Register(app core.App) {
 		spa := apis.Static(assets, true)
 		e.Router.GET("/{path...}", func(r *core.RequestEvent) error {
 			p := r.Request.URL.Path
-			if blob, ok := compressed[p]; ok {
+			if asset, ok := compressed[p]; ok {
 				r.Response.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-				r.Response.Header().Set("Vary", "Accept-Encoding")
-				if acceptsGzip(r.Request.Header.Get("Accept-Encoding")) {
+				r.Response.Header().Add("Vary", "Accept-Encoding")
+				if httpencoding.AcceptsGzip(r.Request.Header.Get("Accept-Encoding")) {
+					r.Set("__skipSuccessActivityLogger", true)
 					r.Response.Header().Set("Content-Encoding", "gzip")
-					r.Response.Header().Set("Content-Type", mime.TypeByExtension(path.Ext(p)))
-					http.ServeContent(r.Response, r.Request, path.Base(p), time.Time{}, bytes.NewReader(blob))
+					r.Response.Header().Set("Content-Type", asset.contentType)
+					r.Response.Header().Set("Content-Length", fmt.Sprint(len(asset.blob)))
+					http.ServeContent(r.Response, r.Request, path.Base(p), time.Time{}, bytes.NewReader(asset.blob))
 					return nil
 				}
 				return static(r)

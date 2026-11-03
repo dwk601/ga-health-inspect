@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Map, MapClusterLayer, MapControls, MapPopup, useMap } from '@/components/ui/map'
-import { getDetail } from './api'
 import type { Facility, Point } from './types'
+
+const georgiaBounds: [[number, number], [number, number]] = [[-85.61, 30.36], [-80.84, 35.0]]
 
 function FitGeorgia({ selected }: { selected: string | null }) {
   const { map, isLoaded } = useMap()
@@ -13,7 +14,7 @@ function FitGeorgia({ selected }: { selected: string | null }) {
       if (!fitted.current && container.clientWidth && container.clientHeight) {
         fitted.current = true
         map.resize()
-        map.fitBounds([[-85.61, 30.36], [-80.84, 35.0]], { padding: 20, duration: 0 })
+        map.fitBounds(georgiaBounds, { padding: 20, duration: 0 })
       }
     }
     const observer = new ResizeObserver(fit)
@@ -50,18 +51,10 @@ function transformRequest(url: string) {
   }
   return { url }
 }
-export function MapView({ points, selected, onSelect, theme }: { points: Point[]; selected: string | null; onSelect: (id: string | null) => void; theme: 'light' | 'dark' }) {
+export function MapView({ points, selected, onSelect, theme, detail, detailError }: { points: Point[]; selected: string | null; onSelect: (id: string | null) => void; theme: 'light' | 'dark'; detail: Facility | null; detailError: boolean }) {
   const data = useMemo<GeoJSON.FeatureCollection<GeoJSON.Point, { id: string }>>(() => ({ type: 'FeatureCollection', features: points.map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: p.coordinates }, properties: { id: p.id } })) }), [points])
   const point = points.find(p => p.id === selected)
-  const [detail, setDetail] = useState<Facility | null>(null)
-  const [detailError, setDetailError] = useState(false)
-  useEffect(() => {
-    let active = true
-    setDetail(null); setDetailError(false)
-    if (selected) getDetail(selected).then(result => { if (active) setDetail(result.facility) }).catch(() => { if (active) setDetailError(true) })
-    return () => { active = false }
-  }, [selected])
-  return <div className="map-area"><Map bounds={[[-85.61, 30.36], [-80.84, 35.0]]} fitBoundsOptions={{ padding: 20 }} theme={theme} transformRequest={transformRequest}>
+  return <div className="map-area"><Map bounds={georgiaBounds} fitBoundsOptions={{ padding: 20 }} theme={theme} transformRequest={transformRequest}>
     <FitGeorgia selected={selected} />
     <MapClusterLayer data={data} onPointClick={feature => onSelect(feature.properties.id)} />
     <SelectedLocation selected={selected} point={point} />

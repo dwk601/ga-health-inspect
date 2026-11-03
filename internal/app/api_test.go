@@ -18,6 +18,7 @@ import (
 	"ganigeorgiev.com/pocketbase/pocketbase/apis"
 	"ganigeorgiev.com/pocketbase/pocketbase/core"
 	"github.com/jackc/pgx/v5"
+	"github.com/redis/go-redis/v9"
 )
 
 func startTestServer(t *testing.T) (*httptest.Server, *pocketbase.PocketBase) {
@@ -281,11 +282,45 @@ func TestInspectionAPI(t *testing.T) {
 	if code != 200 || h.Get("ETag") == etag || bytes.Equal(body, updated) {
 		t.Fatalf("generation did not invalidate: %d", code)
 	}
+	updatedETag := h.Get("ETag")
 	deadDB := "postgres://ga_inspect_reader:scratch-reader-only@127.0.0.1:1/health_scratch?sslmode=disable&connect_timeout=1"
 	stale, _ := start(deadDB, redisURL)
-	code, h, staleBody := request(stale, "/api/inspect/points", nil)
-	if code != 200 || h.Get("X-Inspection-Stale") != "true" || !bytes.Equal(staleBody, updated) {
+	var staleBody []byte
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		code, h, staleBody = request(stale, "/api/inspect/points", map[string]string{"If-None-Match": updatedETag})
+		if bytes.Equal(staleBody, updated) || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if code != 200 || h.Get("X-Inspection-Stale") != "true" || h.Get("Cache-Control") != "no-store" || h.Get("ETag") != "" || !bytes.Equal(staleBody, updated) {
 		t.Fatalf("stale: %d %s", code, staleBody)
+	}
+	// A transient cache timeout followed by a blocked fill must retry the snapshot.
+	opts, err := redis.ParseURL(redisURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := redis.NewClient(opts)
+	defer cache.Close()
+	fillLock, err := admin.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fillLock.Rollback(ctx)
+	if _, err = fillLock.Exec(ctx, `LOCK TABLE public.facilities IN ACCESS EXCLUSIVE MODE`); err != nil {
+		t.Fatal(err)
+	}
+	if err = cache.Do(ctx, "CLIENT", "PAUSE", "500", "ALL").Err(); err != nil {
+		t.Fatal(err)
+	}
+	code, h, fallbackBody := request(server, "/api/inspect/points", nil)
+	if code != 200 || h.Get("X-Inspection-Stale") != "true" || !bytes.Equal(fallbackBody, updated) {
+		t.Fatalf("fill failure fallback: %d %s", code, fallbackBody)
+	}
+	if err = fillLock.Commit(ctx); err != nil {
+		t.Fatal(err)
 	}
 	cold, _ := start(deadDB, "redis://127.0.0.1:1/0")
 	code, _, _ = request(cold, "/api/inspect/points", nil)
@@ -317,7 +352,7 @@ func TestInspectionAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, downHeader, _ := request(down, "/api/inspect/points", nil)
-	if code != 200 || downHeader.Get("ETag") != h.Get("ETag") {
+	if code != 200 || downHeader.Get("ETag") != updatedETag {
 		t.Fatalf("redis down points: %d, ETag changed without data change", code)
 	}
 	code, _, detail = request(down, "/api/inspect/facilities/pin", nil)

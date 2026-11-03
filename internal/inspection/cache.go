@@ -56,12 +56,12 @@ func (c *pointsCache) fill(ctx context.Context, s *store, generation string, cac
 			fillCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
 			pending.meta, pending.blob, pending.err = s.fill(fillCtx)
+			close(pending.done)
 			if pending.err == nil {
-				(&cacheRequest{cache: c, silent: cacheFailed}).publish(fillCtx, pending.meta, pending.blob)
+				(&cacheRequest{cache: c, silent: cacheFailed}).publish(context.Background(), pending.meta, pending.blob)
 			}
 			c.mu.Lock()
 			delete(c.filling, generation)
-			close(pending.done)
 			c.mu.Unlock()
 		}()
 	}
@@ -114,14 +114,14 @@ func (r *cacheRequest) get(ctx context.Context, key string, timeout time.Duratio
 	defer cancel()
 	v, err := r.cache.client.Get(ctx, key).Bytes()
 	if err != nil && err != redis.Nil {
-		r.fail()
+		r.fail(err)
 	}
 	return v, err
 }
-func (r *cacheRequest) fail() {
+func (r *cacheRequest) fail(err error) {
 	if !r.failed {
 		if !r.silent {
-			r.cache.logger.Warn("Inspection cache operation failed")
+			r.cache.logger.Warn("Inspection cache operation failed", "error", err)
 		}
 		r.failed = true
 	}
@@ -266,14 +266,14 @@ func (r *cacheRequest) publish(ctx context.Context, m metadata, blob []byte) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 	if err := r.cache.client.Set(ctx, m.Blob, blob, 24*time.Hour).Err(); err != nil {
-		r.fail()
+		r.fail(err)
 		return
 	}
 	data, _ := json.Marshal(m)
 	metaCtx, metaCancel := context.WithTimeout(ctx, 100*time.Millisecond)
 	defer metaCancel()
 	if err := r.cache.client.Eval(metaCtx, publishScript, []string{r.cache.metaKey(m.Generation), r.cache.prefix + "points:last-good"}, data).Err(); err != nil {
-		r.fail()
+		r.fail(err)
 	}
 }
 func unzip(blob []byte) ([]byte, error) {
