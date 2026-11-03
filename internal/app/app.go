@@ -75,7 +75,6 @@ func Register(app core.App) {
 				r.Response.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 				r.Response.Header().Add("Vary", "Accept-Encoding")
 				if httpencoding.AcceptsGzip(r.Request.Header.Get("Accept-Encoding")) {
-					r.Set("__skipSuccessActivityLogger", true)
 					r.Response.Header().Set("Content-Encoding", "gzip")
 					r.Response.Header().Set("Content-Type", asset.contentType)
 					r.Response.Header().Set("Content-Length", fmt.Sprint(len(asset.blob)))
@@ -92,7 +91,7 @@ func Register(app core.App) {
 			}
 			r.Response.Header().Set("Cache-Control", "no-cache")
 			return spa(r)
-		})
+		}).Bind(apis.SkipSuccessActivityLog())
 		return e.Next()
 	})
 }

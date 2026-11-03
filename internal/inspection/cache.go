@@ -45,6 +45,10 @@ type pointFill struct {
 
 func (c *pointsCache) fill(ctx context.Context, s *store, generation string, cacheFailed bool) (metadata, []byte, error) {
 	c.mu.Lock()
+	if err := ctx.Err(); err != nil {
+		c.mu.Unlock()
+		return metadata{}, nil, err
+	}
 	pending := c.filling[generation]
 	if pending == nil {
 		pending = &pointFill{done: make(chan struct{})}
@@ -110,10 +114,11 @@ func (r *cacheRequest) get(ctx context.Context, key string, timeout time.Duratio
 	if r.failed || r.cache.client == nil {
 		return nil, errors.New("cache unavailable")
 	}
+	parent := ctx
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	v, err := r.cache.client.Get(ctx, key).Bytes()
-	if err != nil && err != redis.Nil {
+	if err != nil && err != redis.Nil && parent.Err() == nil {
 		r.fail(err)
 	}
 	return v, err
@@ -231,7 +236,6 @@ func (s *store) fill(ctx context.Context) (metadata, []byte, error) {
 	}
 	sum := sha256.Sum256(stable)
 	digest := hex.EncodeToString(sum[:])
-	blobSum := sha256.Sum256(data)
 	var buf bytes.Buffer
 	zw := gzip.NewWriter(&buf)
 	if _, err = zw.Write(data); err != nil {
@@ -240,7 +244,7 @@ func (s *store) fill(ctx context.Context) (metadata, []byte, error) {
 	if err = zw.Close(); err != nil {
 		return metadata{}, nil, err
 	}
-	return metadata{Generation: gen, GeneratedAt: snap.GeneratedAt, ETag: `W/"` + digest + `"`, Blob: hex.EncodeToString(blobSum[:])}, buf.Bytes(), nil
+	return metadata{Generation: gen, GeneratedAt: snap.GeneratedAt, ETag: `W/"` + digest + `"`, Blob: digest}, buf.Bytes(), nil
 }
 
 // Publication checks both the generation and timestamp in a single Redis operation.

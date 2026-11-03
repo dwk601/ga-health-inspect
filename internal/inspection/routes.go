@@ -78,6 +78,9 @@ func (s *service) detail(e *core.RequestEvent) error {
 }
 func validText(s string) bool { return utf8.ValidString(s) && !strings.ContainsRune(s, 0) }
 func unavailable(e *core.RequestEvent, err error) error {
+	if e.Request.Context().Err() != nil {
+		return nil
+	}
 	e.App.Logger().Warn("Inspection data unavailable", "error", err)
 	return e.JSON(http.StatusServiceUnavailable, map[string]string{"error": "inspection data unavailable"})
 }
@@ -152,6 +155,9 @@ func (s *service) points(e *core.RequestEvent) error {
 		queryCancel()
 	}
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
 		e.App.Logger().Warn("Inspection source failed", "error", err)
 		if ok, err := s.cached(e, ctx, r, s.cache.prefix+"points:last-good", true); ok {
 			return err
@@ -161,15 +167,17 @@ func (s *service) points(e *core.RequestEvent) error {
 	if ok, err := s.cached(e, ctx, r, s.cache.metaKey(gen), false); ok {
 		return err
 	}
+	if ctx.Err() != nil {
+		return nil
+	}
 	m, blob, err := s.cache.fill(ctx, s.store, gen, r.failed)
 	if err != nil {
-		e.App.Logger().Warn("Inspection fill failed", "error", err)
-		// Retry cache reads after a failed fill, even if the initial read timed out.
-		retry := &cacheRequest{cache: s.cache}
-		if ok, err := s.cached(e, ctx, retry, s.cache.metaKey(gen), true); ok {
-			return err
+		if ctx.Err() != nil {
+			return nil
 		}
-		retry = &cacheRequest{cache: s.cache}
+		e.App.Logger().Warn("Inspection fill failed", "error", err)
+		// Retry the last-good cache after a failed fill, even if the initial read timed out.
+		retry := &cacheRequest{cache: s.cache}
 		if ok, err := s.cached(e, ctx, retry, s.cache.prefix+"points:last-good", true); ok {
 			return err
 		}
