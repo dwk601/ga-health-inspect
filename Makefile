@@ -5,8 +5,8 @@ COMPOSE = docker compose -f compose.dev.yaml -p $(PROJECT)
 GO_PACKAGES = . ./internal/... ./web ./migrations
 
 .PHONY: setup frontend build test vet check dev-api dev-web require-project db-up db-down services-check image smoke
-image: require-project
-	docker compose -p $(PROJECT) -f docker-compose.yaml build app
+image:
+	docker build --build-arg VITE_CARTO_KEY="$${VITE_CARTO_KEY:-}" -t ga-health-inspect:local .
 smoke: require-project
 	PROJECT=$(PROJECT) bash scripts/smoke.sh
 setup:

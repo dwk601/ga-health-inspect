@@ -3,7 +3,6 @@ web/node_modules
 web/dist
 pb_data
 server
-.smoke-compose.*.yaml
 **/.env*
 !**/.env.example
 !.env.example
