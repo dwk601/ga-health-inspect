@@ -674,6 +674,7 @@ textarea {
   gap: 0.3rem;
 }
 .rating-picker label {
+  position: relative;
   margin: 0;
 }
 .rating-picker input {
