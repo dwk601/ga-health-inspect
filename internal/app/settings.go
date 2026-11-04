@@ -14,18 +14,6 @@ func configureSettings(app core.App) error {
 	if err != nil {
 		return err
 	}
-	var settingsMu sync.Mutex
-	app.OnSettingsUpdateRequest().BindFunc(func(e *core.SettingsUpdateRequestEvent) error {
-		settingsMu.Lock()
-		defer settingsMu.Unlock()
-		copyManagedSettings(e.NewSettings, stored)
-		err := e.Next()
-		if err == nil {
-			stored, err = e.NewSettings.Clone()
-		}
-		copyManagedSettings(e.App.Settings(), e.OldSettings)
-		return err
-	})
 	s := app.Settings()
 	s.Meta.AppName = os.Getenv("APP_NAME")
 	if s.Meta.AppName == "" {
@@ -76,6 +64,32 @@ func configureSettings(app core.App) error {
 		s.SMTP.Username = os.Getenv("SMTP_USERNAME")
 		s.SMTP.Password = os.Getenv("SMTP_PASSWORD")
 	}
+	managed, err := s.Clone()
+	if err != nil {
+		return err
+	}
+	app.OnSettingsListRequest().BindFunc(func(e *core.SettingsListRequestEvent) error {
+		copyManagedSettings(e.Settings, managed)
+		return e.Next()
+	})
+	app.OnSettingsReload().BindFunc(func(e *core.SettingsReloadEvent) error {
+		if err := e.Next(); err != nil {
+			return err
+		}
+		copyManagedSettings(e.App.Settings(), managed)
+		return nil
+	})
+	var settingsMu sync.Mutex
+	app.OnSettingsUpdateRequest().BindFunc(func(e *core.SettingsUpdateRequestEvent) error {
+		settingsMu.Lock()
+		defer settingsMu.Unlock()
+		copyManagedSettings(e.NewSettings, stored)
+		err := e.Next()
+		if err == nil {
+			stored, err = e.NewSettings.Clone()
+		}
+		return err
+	})
 	users, err := app.FindCollectionByNameOrId("users")
 	if err != nil {
 		return err

@@ -62,6 +62,60 @@ func startTestServer(t *testing.T) (*httptest.Server, *pocketbase.PocketBase) {
 	return server, pb
 }
 
+func TestManagedSettingsUpdate(t *testing.T) {
+	t.Setenv("APP_URL", "https://settings.example.test")
+	t.Setenv("SMTP_HOST", "smtp.example.test")
+	t.Setenv("SMTP_SENDER_ADDRESS", "settings@example.test")
+	server, pb := startTestServer(t)
+	collection, err := pb.FindCollectionByNameOrId("_superusers")
+	if err != nil {
+		t.Fatal(err)
+	}
+	super := core.NewRecord(collection)
+	super.SetEmail("super@example.test")
+	super.SetPassword("password1234")
+	if err := pb.Save(super); err != nil {
+		t.Fatal(err)
+	}
+	token, err := super.NewAuthToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, method := range []string{http.MethodPatch, http.MethodGet} {
+		var body io.Reader
+		if method == http.MethodPatch {
+			body = strings.NewReader(`{"meta":{"appName":"Updated"}}`)
+		}
+		req, err := http.NewRequest(method, server.URL+"/api/settings", body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Authorization", token)
+		req.Header.Set("Content-Type", "application/json")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var settings struct {
+			Meta struct {
+				AppURL string `json:"appURL"`
+			} `json:"meta"`
+			SMTP struct {
+				Enabled bool   `json:"enabled"`
+				Host    string `json:"host"`
+			} `json:"smtp"`
+			RateLimits struct {
+				Enabled bool `json:"enabled"`
+			} `json:"rateLimits"`
+		}
+		err = json.NewDecoder(res.Body).Decode(&settings)
+		res.Body.Close()
+		if err != nil || res.StatusCode != http.StatusOK || settings.Meta.AppURL != "https://settings.example.test" || !settings.SMTP.Enabled || settings.SMTP.Host != "smtp.example.test" || !settings.RateLimits.Enabled {
+			t.Fatalf("%s settings: status=%d settings=%+v error=%v", method, res.StatusCode, settings, err)
+		}
+	}
+}
+
 func TestInspectionAPI(t *testing.T) {
 	database := os.Getenv("DATABASE_URL")
 	redisURL := os.Getenv("REDIS_URL")
