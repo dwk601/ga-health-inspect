@@ -85,7 +85,7 @@ func Register(app core.App) {
 			if p == "/index.html" {
 				r.Response.Header().Set("Cache-Control", "no-cache")
 			}
-			if (p == "/api" || strings.HasPrefix(p, "/api/")) || p == "/assets" || strings.HasPrefix(p, "/assets/") {
+			if p == "/api" || strings.HasPrefix(p, "/api/") || p == "/assets" || strings.HasPrefix(p, "/assets/") {
 				return static(r)
 			}
 			if name := strings.TrimPrefix(p, "/"); name != "" && !strings.Contains(name, "/") {

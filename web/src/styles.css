@@ -91,14 +91,14 @@ a {
   outline-offset: 2px;
 }
 @layer base {
-  :where(.topbar, .sidebar, .mobile-switch, .auth-panel) button {
+  :where(.topbar, .sidebar, .mobile-switch, .auth-panel, .map-failure) button {
     border: 1px solid var(--border);
     border-radius: 7px;
     background: var(--card);
     color: var(--foreground);
     padding: 0.55rem 0.8rem;
   }
-  :where(.topbar, .sidebar, .mobile-switch, .auth-panel) button:hover {
+  :where(.topbar, .sidebar, .mobile-switch, .auth-panel, .map-failure) button:hover {
     background: var(--muted);
   }
 }

@@ -143,10 +143,10 @@ export default function App() {
         {selected ? <FacilityDetail key={selected} id={selected} onClose={() => select(null)} user={user} detail={currentDetail?.detail ?? null} error={currentDetail?.error ?? ''} load={loadDetail} /> :
           <Directory query={query} setQuery={setQuery} permit={permit} setPermit={setPermit} snapshot={snapshot} facilities={facilities} searchMessage={searchMessage} restoreId={restoreId} select={select} />}
       </aside>
-      <section className={`map-panel ${mobileMap ? '' : 'mobile-hidden'}`} aria-label="Facility map">
+      <div className={`map-panel ${mobileMap ? '' : 'mobile-hidden'}`}>
         {mapMessage && <p className="map-message" role="status">{mapMessage}</p>}
         <MapView points={points} selected={selected} onSelect={select} theme={theme} detail={currentDetail?.detail?.facility ?? null} detailError={!!currentDetail?.error} />
-      </section>
+      </div>
     </main>
   </>
 }

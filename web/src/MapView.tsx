@@ -83,18 +83,19 @@ export function MapView({ points, selected, onSelect, theme, detail, detailError
   const [failed, setFailed] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [attempt, setAttempt] = useState(0)
-  const retry = () => { setLoaded(false); setFailed(false); setAttempt(value => value + 1) }
+  const mapRegion = useRef<HTMLElement>(null)
+  const retry = () => { mapRegion.current?.focus(); setLoaded(false); setFailed(false); setAttempt(value => value + 1) }
   useEffect(() => {
     if (loaded) return
     const timer = window.setTimeout(() => setFailed(true), 15000)
     return () => window.clearTimeout(timer)
   }, [loaded, attempt])
-  return <div className="map-area"><MapErrorBoundary key={attempt} onRetry={retry}>{failed ? <MapFailure onRetry={retry} /> : <Map bounds={georgiaBounds} fitBoundsOptions={{ padding: 20 }} theme={theme} transformRequest={transformRequest}>
+  return <section ref={mapRegion} className="map-area" aria-label="Facility map" tabIndex={-1}><MapErrorBoundary key={attempt} onRetry={retry}>{failed ? <MapFailure onRetry={retry} /> : <Map bounds={georgiaBounds} fitBoundsOptions={{ padding: 20 }} theme={theme} transformRequest={transformRequest}>
     <MapLoadMonitor onLoaded={() => setLoaded(true)} onFailure={() => setFailed(true)} />
     <FitGeorgia selected={selected} />
     <MapClusterLayer data={data} onPointClick={feature => onSelect(feature.properties.id)} />
     <SelectedLocation selected={selected} point={point} />
     <MapControls position="bottom-right" showZoom />
     {point && <MapPopup longitude={point.coordinates[0]} latitude={point.coordinates[1]} onClose={() => onSelect(null)} closeButton closeOnClick={false} focusAfterOpen={false}><div className="map-popup">{detail ? <><strong>{detail.name || 'Unnamed facility'}</strong><p>Inspection score: {detail.lastInspectionScore ?? 'Not available'}</p></> : <p>{detailError ? 'Facility details unavailable.' : 'Loading facility…'}</p>}</div></MapPopup>}
-  </Map>}</MapErrorBoundary></div>
+  </Map>}</MapErrorBoundary></section>
 }
