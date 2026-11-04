@@ -43,7 +43,7 @@ export function useNearby(snapshot: Snapshot | null, permit: string) {
     const current = ++sequence.current
     setActive(true); setLocating(true); setOrigin(null); setError(''); setLookup(null)
     if (!window.isSecureContext || !navigator.geolocation) {
-      setLocating(false); setError(!window.isSecureContext ? 'Location requires a secure connection. Open this site over HTTPS and try again.' : 'This browser does not support location. Browse all Georgia instead.')
+      setLocating(false); setError(!window.isSecureContext ? 'Location requires a secure connection. Open this site over HTTPS or browse all Georgia.' : 'This browser does not support location. Browse all Georgia instead.')
       return
     }
     navigator.geolocation.getCurrentPosition(position => {
@@ -60,7 +60,7 @@ export function useNearby(snapshot: Snapshot | null, permit: string) {
   const facilities = current?.facilities ?? []
   const ids = new Set(facilities.map(f => f.id))
   return {
-    active, origin, locating, error, candidates, facilities,
+    active, origin, locating, error, candidates, facilities, canLocate: window.isSecureContext && !!navigator.geolocation,
     points: candidates.filter(c => ids.has(c.point.id)).map(c => c.point),
     distances: new Map(candidates.map(c => [c.point.id, c.distance])),
     loading: !!(active && origin && snapshot && candidates.length && !current),

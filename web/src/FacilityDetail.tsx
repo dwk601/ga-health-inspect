@@ -84,7 +84,11 @@ export function FacilityDetail({
                 .join(' · ')}
             </p>
             <Contact facility={facility} />
-            <button className="community-jump" onClick={() => document.getElementById('community-title')?.focus()}>Rate or comment</button>
+            <button className="community-jump" onClick={() => {
+              const heading = document.getElementById('community-title')
+              heading?.focus({ preventScroll: true })
+              heading?.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' })
+            }}>Rate or comment</button>
           </header>
           <dl className="summary-grid">
             <div>
