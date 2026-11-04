@@ -2,6 +2,7 @@ import { Component, useCallback, useEffect, useMemo, useRef, useState, type Reac
 import { Map, MapClusterLayer, MapControls, MapMarker, MarkerContent, MapPopup, useMap } from '@/components/ui/map'
 import type { ErrorEvent as MapErrorEvent } from 'maplibre-gl'
 import type { Facility, Point } from './types'
+import type { Origin } from './useNearby'
 import { MapFailure } from './MapFailure'
 
 class MapErrorBoundary extends Component<{ children: ReactNode; onRetry: () => void }, { failed: boolean }> {
@@ -27,7 +28,7 @@ function MapLoadMonitor({ onLoaded, onFailure }: { onLoaded: () => void; onFailu
 
 const georgiaBounds: [[number, number], [number, number]] = [[-85.61, 30.36], [-80.84, 35.0]]
 
-function FitView({ selected, nearby, origin, fitPoints, ready }: { selected: string | null; nearby: boolean; origin: { coordinates: [number, number]; sequence: number } | null; fitPoints: Point[]; ready: boolean }) {
+function FitView({ selected, nearby, origin, fitPoints, ready }: { selected: string | null; nearby: boolean; origin: Origin | null; fitPoints: Point[]; ready: boolean }) {
   const { map, isLoaded } = useMap()
   const fitted = useRef('')
   useEffect(() => {
@@ -81,7 +82,7 @@ function transformRequest(url: string) {
   }
   return { url }
 }
-export function MapView({ points, facilities, fitPoints, ready, origin, nearby, selected, onSelect, theme, detail, detailError }: { points: Point[]; facilities: Facility[]; fitPoints: Point[]; ready: boolean; origin: { coordinates: [number, number]; sequence: number } | null; nearby: boolean; selected: string | null; onSelect: (id: string | null) => void; theme: 'light' | 'dark'; detail: Facility | null; detailError: boolean }) {
+export function MapView({ points, facilities, fitPoints, ready, origin, nearby, selected, onSelect, theme, detail, detailError }: { points: Point[]; facilities: Facility[]; fitPoints: Point[]; ready: boolean; origin: Origin | null; nearby: boolean; selected: string | null; onSelect: (id: string | null) => void; theme: 'light' | 'dark'; detail: Facility | null; detailError: boolean }) {
   const data = useMemo<GeoJSON.FeatureCollection<GeoJSON.Point, { id: string }>>(() => ({ type: 'FeatureCollection', features: points.map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: p.coordinates }, properties: { id: p.id } })) }), [points])
   const point = points.find(p => p.id === selected)
   const names = useMemo(() => new globalThis.Map(facilities.map(f => [f.id, f.name || 'Unnamed facility'])), [facilities])
@@ -100,7 +101,7 @@ export function MapView({ points, facilities, fitPoints, ready, origin, nearby, 
   return <section ref={mapRegion} className="map-area" aria-label="Facility map" tabIndex={-1}><MapErrorBoundary key={attempt} onRetry={retry}>{failed ? <MapFailure onRetry={retry} /> : <Map bounds={georgiaBounds} fitBoundsOptions={{ padding: 20 }} theme={theme} transformRequest={transformRequest}>
     <MapLoadMonitor onLoaded={onLoaded} onFailure={onFailure} />
     <FitView selected={selected} nearby={nearby} origin={origin} fitPoints={fitPoints} ready={ready} />
-    {nearby ? <>{points.map(p => <MapMarker key={p.id} longitude={p.coordinates[0]} latitude={p.coordinates[1]}><MarkerContent><button className={`nearby-marker ${p.id === selected ? 'selected' : ''}`} aria-label={`View ${names.get(p.id) ?? 'unnamed facility'}`} onClick={() => onSelect(p.id)} /></MarkerContent></MapMarker>)}{origin && <MapMarker longitude={origin.coordinates[0]} latitude={origin.coordinates[1]}><MarkerContent><span className="origin-marker" aria-label="Your location"><span aria-hidden="true">◆</span> You</span></MarkerContent></MapMarker>}</> : <MapClusterLayer data={data} clusterColors={clusterColors} pointColor={theme === 'dark' ? '#7cc3ee' : '#164d78'} onPointClick={feature => onSelect(feature.properties.id)} />}
+    {nearby ? <>{points.map(p => <MapMarker key={p.id} longitude={p.coordinates[0]} latitude={p.coordinates[1]}><MarkerContent><button className={`nearby-marker ${p.id === selected ? 'selected' : ''}`} aria-label={`View ${names.get(p.id) ?? (p.id === selected ? detail?.name : null) ?? 'unnamed facility'}`} onClick={() => onSelect(p.id)} /></MarkerContent></MapMarker>)}{origin && <MapMarker longitude={origin.coordinates[0]} latitude={origin.coordinates[1]}><MarkerContent><span className="origin-marker" aria-label="Your location"><span aria-hidden="true">◆</span> You</span></MarkerContent></MapMarker>}</> : <MapClusterLayer data={data} clusterColors={clusterColors} pointColor={theme === 'dark' ? '#7cc3ee' : '#164d78'} onPointClick={feature => onSelect(feature.properties.id)} />}
     <SelectedLocation selected={selected} point={point} />
     <MapControls position="bottom-right" showZoom />
     {point && <MapPopup longitude={point.coordinates[0]} latitude={point.coordinates[1]} onClose={() => onSelect(null)} closeButton closeOnClick={false} focusAfterOpen={false}><div className="map-popup">{detail ? <><strong>{detail.name || 'Unnamed facility'}</strong><p>Inspection score: {detail.lastInspectionScore ?? 'Not available'}</p></> : <p>{detailError ? 'Facility details unavailable.' : 'Loading facility…'}</p>}</div></MapPopup>}

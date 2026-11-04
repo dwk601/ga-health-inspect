@@ -3,11 +3,14 @@ import { ChevronRight } from 'lucide-react'
 import { formatDate } from './format'
 import type { Facility } from './types'
 
-export function FacilityList({ facilities, restoreId, onSelect, distances }: { facilities: Facility[]; restoreId: string | null; onSelect: (id: string) => void; distances?: Map<string, number> }) {
+export function FacilityList({ facilities, restoreId, onRestored, onSelect, distances }: { facilities: Facility[]; restoreId: string | null; onRestored: () => void; onSelect: (id: string) => void; distances?: Map<string, number> }) {
   const restoreRow = useRef<HTMLButtonElement>(null)
   useLayoutEffect(() => {
-    if (restoreId) (restoreRow.current ?? document.querySelector<HTMLInputElement>('#search'))?.focus()
-  }, [restoreId])
+    if (restoreId) {
+      restoreRow.current?.focus()
+      onRestored()
+    }
+  }, [restoreId, onRestored])
 
   if (!facilities.length) return <p className="empty">No facilities match. Try a shorter name, a street or city, or all permit types.</p>
   return <ul className="facility-list">{facilities.map(f => {

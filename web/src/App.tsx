@@ -1,4 +1,4 @@
-import { Component, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Component, Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import type { RecordModel } from 'pocketbase'
 import { LocateFixed, MapPinned, Moon, Search, Sun } from 'lucide-react'
@@ -95,31 +95,71 @@ function resultSummary(count: number, searching: boolean) {
   return `${count} ${count === 1 ? 'facility' : 'facilities'}`
 }
 
-function Directory({ query, setQuery, permit, setPermit, snapshot, facilities, searchMessage, searching, restoreId, select, nearby, startNearby, exitNearby, mapMessage, pointsLoading, retryPoints }: {
-  query: string; setQuery: (value: string) => void; permit: string; setPermit: (value: string) => void
-  snapshot: Snapshot | null; facilities: Facility[]; searchMessage: string; searching: boolean; restoreId: string | null; select: (id: string) => void
-  nearby: ReturnType<typeof useNearby>; startNearby: () => void; exitNearby: () => void; mapMessage: string; pointsLoading: boolean; retryPoints: () => void
+type Nearby = ReturnType<typeof useNearby>
+
+function nearbyStatus(nearby: Nearby, snapshot: Snapshot | null, pointsLoading: boolean) {
+  const accuracy = nearby.origin && nearby.origin.accuracy > 1000 ? ' Your location is approximate; results may be less precise.' : ''
+  if (nearby.locating) return { text: 'Finding your location…', error: false }
+  if (nearby.error) return { text: nearby.error, error: true }
+  if (!snapshot) return { text: pointsLoading ? 'Loading map data…' : 'Map data is unavailable.', error: !pointsLoading }
+  if (nearby.loading) return { text: `Loading place details…${accuracy}`, error: false }
+  if (nearby.lookupError) return { text: `${nearby.lookupError}${accuracy}`, error: true }
+  if (!nearby.candidates.length) return { text: `No places found within 25 miles for this type.${accuracy}`, error: false }
+  const missing = nearby.missing ? ` ${nearby.missing} nearby ${nearby.missing === 1 ? 'place is' : 'places are'} missing details and not shown.` : ''
+  return { text: `${nearby.facilities.length} nearby ${nearby.facilities.length === 1 ? 'place' : 'places'} shown.${missing}${accuracy}`, error: false }
+}
+
+function NearbyStatus({ status, announce }: { status: ReturnType<typeof nearbyStatus>; announce: boolean }) {
+  return <p role={announce ? status.error ? 'alert' : 'status' : undefined} aria-hidden={!announce || undefined}>{status.text}</p>
+}
+
+function NearbyResults({ nearby, snapshot, pointsLoading, status, restoreId, onRestored, select, startNearby, leave, retryPoints, focusNear, announce }: {
+  nearby: Nearby; snapshot: Snapshot | null; pointsLoading: boolean; status: ReturnType<typeof nearbyStatus>
+  restoreId: string | null; onRestored: () => void; select: (id: string) => void; startNearby: () => void; leave: () => void; retryPoints: () => void; focusNear: () => void; announce: boolean
 }) {
+  const retry = (action: () => void) => { focusNear(); action() }
+  function results() {
+    if (nearby.error) return <div className="empty"><button onClick={() => retry(startNearby)}>Try again</button> <button onClick={leave}>Browse all Georgia</button></div>
+    if (!nearby.locating && !snapshot && !pointsLoading) return <div className="empty"><button onClick={() => retry(retryPoints)}>Retry map data</button></div>
+    if (nearby.loading) return <div className="nearby-loading">{nearby.candidates.map(c => <div key={c.point.id} className="loading-row" aria-hidden="true" />)}</div>
+    if (nearby.lookupError) return <div className="empty"><button onClick={() => retry(nearby.retry)}>Try again</button></div>
+    if (snapshot && !nearby.locating && !nearby.candidates.length) return <div className="empty"><button onClick={leave}>Search all Georgia</button></div>
+    if (nearby.facilities.length) return <FacilityList facilities={nearby.facilities} distances={nearby.distances} restoreId={restoreId} onRestored={onRestored} onSelect={select} />
+    return null
+  }
+  return <>
+    <p className="nearby-description">Within 25 miles, up to 20 places. Distances are straight-line, not travel distances.</p>
+    <div className="nearby-status"><NearbyStatus status={status} announce={announce} /></div>
+    {results()}
+  </>
+}
+
+function Directory({ query, setQuery, permit, setPermit, snapshot, facilities, searchMessage, searching, restoreId, onRestored, select, nearby, startNearby, mapMessage, pointsLoading, retryPoints, status, announce }: {
+  query: string; setQuery: (value: string) => void; permit: string; setPermit: (value: string) => void
+  snapshot: Snapshot | null; facilities: Facility[]; searchMessage: string; searching: boolean; restoreId: string | null; onRestored: () => void; select: (id: string) => void
+  nearby: Nearby; startNearby: () => void; mapMessage: string; pointsLoading: boolean; retryPoints: () => void; status: ReturnType<typeof nearbyStatus>; announce: boolean
+}) {
+  const nearButton = useRef<HTMLButtonElement>(null)
+  const focusNear = () => nearButton.current?.focus()
+  const leave = () => { focusNear(); nearby.exit() }
+  const hasList = nearby.active ? nearby.facilities.length > 0 && !nearby.loading && !nearby.error && !nearby.lookupError : !searchMessage && (!searching || facilities.length > 0)
+  useLayoutEffect(() => { if (restoreId && !hasList) onRestored() }, [restoreId, hasList, onRestored])
   return <>
     <div className="directory-head">
-    <div className="search-header">
-      <h1>Find a place</h1>
-      <p className="discovery-intro">Explore inspections and hear from visitors.</p>
-      <div className="search-field">
-        <Search size={18} aria-hidden />
-        <input id="search" type="search" aria-label="Search by name, address, or ID" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search all Georgia" autoComplete="off" />
+      <div className="search-header">
+        <h1>Find a place</h1>
+        <p className="discovery-intro">Explore inspections and hear from visitors.</p>
+        <div className="search-field">
+          <Search size={18} aria-hidden />
+          <input id="search" type="search" aria-label="Search by name, address, or ID" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search all Georgia" autoComplete="off" />
+        </div>
+        <div className="discovery-actions"><button ref={nearButton} className="primary near-button" onClick={nearby.locating ? leave : startNearby}><LocateFixed size={17} aria-hidden />{nearby.locating ? 'Cancel locating' : 'Near me'}</button>{nearby.active && <button onClick={leave}>All Georgia</button>}</div>
       </div>
-      <div className="discovery-actions"><button className="primary near-button" onClick={nearby.locating ? exitNearby : startNearby}><LocateFixed size={17} aria-hidden />{nearby.locating ? 'Cancel locating' : 'Near me'}</button>{nearby.active && <button onClick={exitNearby}>All Georgia</button>}</div>
-      <div className="permit-chips" role="group" aria-label="Permit type">{['', ...(snapshot?.permitChoices ?? [])].map(p => <button key={p} aria-pressed={permit === p} onClick={() => setPermit(p)}>{p || 'All types'}</button>)}</div>
     </div>
-    <div className="results-heading"><span role="status">{nearby.active ? 'Nearby places' : searchMessage ? 'Search unavailable' : resultSummary(facilities.length, searching)}</span><span aria-hidden>Inspection score</span></div>
-    </div>
-    {mapMessage && <p className="directory-notice">{mapMessage}</p>}
-    {nearby.active ? <>
-      <p className="nearby-description">Within 25 miles, up to 20 places. Distances are straight-line, not travel distances.</p>
-      {nearby.origin && nearby.origin.accuracy > 1000 && <p className="directory-notice">Your location is approximate; nearby results may be less precise.</p>}
-      {nearby.locating ? <p className="empty">Finding your location…</p> : nearby.error ? <div className="empty"><p>{nearby.error}</p><button onClick={startNearby}>Try again</button> <button onClick={exitNearby}>Browse all Georgia</button></div> : !snapshot ? <div className="empty"><p>{pointsLoading ? 'Loading map data…' : 'Map data is unavailable.'}</p>{!pointsLoading && <button onClick={retryPoints}>Retry map data</button>}</div> : nearby.loading ? <div className="nearby-loading"><p className="empty">Loading place details…</p>{nearby.candidates.map(c => <div key={c.point.id} className="loading-row" aria-hidden="true" />)}</div> : nearby.lookupError ? <div className="empty"><p>{nearby.lookupError}</p><button onClick={nearby.retry}>Try again</button></div> : nearby.candidates.length === 0 ? <div className="empty"><p>No places found within 25 miles for this type.</p><button onClick={exitNearby}>Search all Georgia</button></div> : <>{!!nearby.missing && <p className="directory-notice">{nearby.missing} nearby {nearby.missing === 1 ? 'place is' : 'places are'} missing details and not shown.</p>}{nearby.facilities.length > 0 && <FacilityList facilities={nearby.facilities} distances={nearby.distances} restoreId={restoreId} onSelect={select} />}</>}
-    </> : searchMessage ? <p className="empty" role="alert">{searchMessage}</p> : searching && !facilities.length ? null : <FacilityList facilities={facilities} restoreId={restoreId} onSelect={select} />}
+    <div className="permit-chips" role="group" aria-label="Permit type">{['', ...(snapshot?.permitChoices ?? [])].map(p => <button key={p} aria-pressed={permit === p} onClick={() => setPermit(p)}>{p || 'All types'}</button>)}</div>
+    <div className="results-heading"><span role={nearby.active ? undefined : 'status'}>{nearby.active ? 'Nearby places' : searchMessage ? 'Search unavailable' : resultSummary(facilities.length, searching)}</span><span aria-hidden>Inspection score</span></div>
+    {nearby.active && snapshot && mapMessage && <p className="directory-notice">{mapMessage}</p>}
+    {nearby.active ? <NearbyResults nearby={nearby} snapshot={snapshot} pointsLoading={pointsLoading} status={status} restoreId={restoreId} onRestored={onRestored} select={select} startNearby={startNearby} leave={leave} retryPoints={retryPoints} focusNear={focusNear} announce={announce} /> : searchMessage ? <p className="empty" role="alert">{searchMessage}</p> : searching && !facilities.length ? null : <FacilityList facilities={facilities} restoreId={restoreId} onRestored={onRestored} onSelect={select} />}
   </>
 }
 
@@ -144,9 +184,15 @@ export default function App() {
   const { facilities, searchMessage, searching } = useStatewideSearch(query, permit, nearby.active)
   const points = useMemo(() => (snapshot?.points || []).filter(p => !permit || p.permitType === permit), [snapshot, permit])
   const fitPoints = useMemo(() => nearby.candidates.map(c => c.point), [nearby.candidates])
-  const startNearby = () => { setQuery(''); nearby.locate() }
-  const exitNearby = nearby.exit
-  const updateQuery = (value: string) => { if (nearby.active) exitNearby(); setQuery(value) }
+  const startNearby = () => { setRestoreId(null); setQuery(''); nearby.locate() }
+  const updateQuery = (value: string) => { if (nearby.active) nearby.exit(); setQuery(value) }
+  const onRestored = useCallback(() => setRestoreId(null), [])
+  const status = nearbyStatus(nearby, snapshot, pointsLoading)
+  const mapPoints = useMemo(() => {
+    if (!nearby.active) return points
+    const selectedPoint = snapshot?.points.find(p => p.id === selected)
+    return selectedPoint && !nearby.points.some(p => p.id === selectedPoint.id) ? [...nearby.points, selectedPoint] : nearby.points
+  }, [nearby.active, nearby.points, points, snapshot, selected])
   const [user, setUser] = useState<RecordModel | null>(pb.authStore.record)
   const [initialRecovery, setInitialRecovery] = useState(() => new URLSearchParams(location.search).get('resend') === 'verification')
   const [auth, setAuth] = useState(initialRecovery)
@@ -160,6 +206,7 @@ export default function App() {
   const [mapAttempt, setMapAttempt] = useState(0)
   const [LazyMapView, setLazyMapView] = useState(createMapView)
   const mapRef = useRef<HTMLDivElement>(null)
+  const mapNearRef = useRef<HTMLButtonElement>(null)
   const accountRef = useRef<HTMLButtonElement>(null)
   const retryMapImport = () => { mapRef.current?.focus(); setLazyMapView(createMapView()); setMapAttempt(n => n + 1) }
   const closeAuth = () => { setAuth(false); requestAnimationFrame(() => accountRef.current?.focus()) }
@@ -197,7 +244,7 @@ export default function App() {
   }, [selected, nearby.locating, nearby.exit])
 
   function select(id: string | null) {
-    if (nearby.locating) exitNearby()
+    if (nearby.locating) nearby.exit()
     setRestoreId(id ? null : selected)
     history.pushState(null, '', id ? `/facilities/${encodeURIComponent(id)}` : '/')
     setPath(location.pathname)
@@ -216,16 +263,24 @@ export default function App() {
     <Header theme={theme} toggleTheme={toggleTheme} user={user} auth={auth} setAuth={setAuth} home={() => select(null)} accountRef={accountRef} />
     {auth && <AuthPanel initialRecovery={initialRecovery} onClose={closeAuth} onSignedIn={closeAuth} />}
     <main className="workspace">
-      <div className="mobile-switch" role="group" aria-label="View"><button aria-pressed={!mobileMap} onClick={() => setMobileMap(false)}>List</button><button aria-pressed={mobileMap} onClick={() => setMobileMap(true)}>Map</button></div>
       <aside className={`sidebar ${mobileMap ? 'mobile-hidden' : ''}`}>
         {selected ? <FacilityDetail key={selected} id={selected} nearby={nearby.active} onClose={() => select(null)} user={user} detail={currentDetail?.detail ?? null} error={currentDetail?.error ?? ''} load={loadDetail} onSignIn={() => setAuth(true)} /> :
-          <Directory query={query} setQuery={updateQuery} permit={permit} setPermit={setPermit} snapshot={snapshot} facilities={facilities} searchMessage={searchMessage} searching={searching} restoreId={restoreId} select={select} nearby={nearby} startNearby={startNearby} exitNearby={exitNearby} mapMessage={mapMessage} pointsLoading={pointsLoading} retryPoints={retryPoints} />}
+          <Directory query={query} setQuery={updateQuery} permit={permit} setPermit={setPermit} snapshot={snapshot} facilities={facilities} searchMessage={searchMessage} searching={searching} restoreId={restoreId} onRestored={onRestored} select={select} nearby={nearby} startNearby={startNearby} mapMessage={mapMessage} pointsLoading={pointsLoading} retryPoints={retryPoints} status={status} announce={!mobileMap} />}
       </aside>
       <div ref={mapRef} tabIndex={-1} className={`map-panel ${mobileMap ? '' : 'mobile-hidden'}`}>
-        {mapMessage && <p className="map-message" role="status">{mapMessage}</p>}
-        <button className="map-near" onClick={nearby.locating ? exitNearby : startNearby}><LocateFixed size={17} aria-hidden /> {nearby.locating ? 'Cancel locating' : 'Near me'}</button>
-        <MapImportBoundary key={mapAttempt} onRetry={retryMapImport}><Suspense fallback={<div className="map-failure">Loading map…</div>}><LazyMapView points={nearby.active ? nearby.points : points} facilities={nearby.facilities} fitPoints={fitPoints} ready={!!snapshot} origin={nearby.origin} nearby={nearby.active} selected={selected} onSelect={select} theme={theme} detail={currentDetail?.detail?.facility ?? null} detailError={!!currentDetail?.error} /></Suspense></MapImportBoundary>
+        <div className="map-notices">
+          {mapMessage && (snapshot || !nearby.active) && <p className="map-message" role="status">{mapMessage}</p>}
+          {nearby.active && <div className="map-message nearby-map-status">
+            <NearbyStatus status={status} announce={mobileMap || !!selected} />
+            {!nearby.locating && !nearby.error && !snapshot && !pointsLoading && <button onClick={() => { mapNearRef.current?.focus(); retryPoints() }}>Retry map data</button>}
+            {nearby.lookupError && <button onClick={() => { mapNearRef.current?.focus(); nearby.retry() }}>Try again</button>}
+            <button onClick={() => { mapNearRef.current?.focus(); nearby.exit() }}>All Georgia</button>
+          </div>}
+        </div>
+        <button ref={mapNearRef} className="map-near" onClick={nearby.locating ? nearby.exit : startNearby}><LocateFixed size={17} aria-hidden /> {nearby.locating ? 'Cancel locating' : 'Near me'}</button>
+        <MapImportBoundary key={mapAttempt} onRetry={retryMapImport}><Suspense fallback={<div className="map-failure">Loading map…</div>}><LazyMapView points={mapPoints} facilities={nearby.facilities} fitPoints={fitPoints} ready={!!snapshot} origin={nearby.origin} nearby={nearby.active} selected={selected} onSelect={select} theme={theme} detail={currentDetail?.detail?.facility ?? null} detailError={!!currentDetail?.error} /></Suspense></MapImportBoundary>
       </div>
+      <div className="mobile-switch" role="group" aria-label="View"><button aria-pressed={!mobileMap} onClick={() => setMobileMap(false)}>List</button><button aria-pressed={mobileMap} onClick={() => setMobileMap(true)}>Map</button></div>
     </main>
   </>
 }

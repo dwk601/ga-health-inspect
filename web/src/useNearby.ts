@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { lookupFacilities } from './api'
 import type { Facility, Point, Snapshot } from './types'
 
-type Origin = { coordinates: [number, number]; accuracy: number; sequence: number }
+export type Origin = { coordinates: [number, number]; accuracy: number; sequence: number }
 type Candidate = { point: Point; distance: number }
 
 function distance(a: [number, number], b: [number, number]) {
@@ -59,5 +59,14 @@ export function useNearby(snapshot: Snapshot | null, permit: string) {
   const current = lookup?.key === key ? lookup : null
   const facilities = current?.facilities ?? []
   const ids = new Set(facilities.map(f => f.id))
-  return { active, origin, locating, error, candidates, facilities, points: candidates.filter(c => ids.has(c.point.id)).map(c => c.point), distances: new Map(candidates.map(c => [c.point.id, c.distance])), loading: !!(active && origin && snapshot && candidates.length && !current), lookupError: current?.error ?? '', missing: current && !current.error ? candidates.length - facilities.length : 0, locate, exit, retry: () => { setLookup(null); setRetryVersion(v => v + 1) } }
+  return {
+    active, origin, locating, error, candidates, facilities,
+    points: candidates.filter(c => ids.has(c.point.id)).map(c => c.point),
+    distances: new Map(candidates.map(c => [c.point.id, c.distance])),
+    loading: !!(active && origin && snapshot && candidates.length && !current),
+    lookupError: current?.error ?? '',
+    missing: current && !current.error ? candidates.length - facilities.length : 0,
+    locate, exit,
+    retry: () => { setLookup(null); setRetryVersion(v => v + 1) },
+  }
 }

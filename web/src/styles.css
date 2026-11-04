@@ -102,6 +102,7 @@ summary {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
 }
+[tabindex="-1"]:focus { outline: none; }
 #community-title:focus {
   outline: 3px solid var(--focus);
   outline-offset: 4px;
@@ -156,6 +157,7 @@ p {
 }
 .brand {
   display: flex;
+  min-height: 44px;
   align-items: center;
   gap: 0.7rem;
   min-width: 0;
@@ -260,7 +262,7 @@ p {
 .discovery-intro { margin: 0 0 .2rem; color: var(--muted-foreground); font-size: .85rem; }
 .discovery-actions { display: flex; gap: .5rem; }
 .sidebar .near-button { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-height: 44px; }
-.permit-chips { display: flex; gap: .4rem; overflow-x: auto; padding: .15rem 0 .3rem; }
+.permit-chips { display: flex; gap: .4rem; overflow-x: auto; padding: .5rem 1.25rem; }
 .sidebar .permit-chips button { flex: none; min-height: 44px; border-radius: 999px; }
 .sidebar .permit-chips button[aria-pressed="true"] { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
 .search-field {
@@ -394,6 +396,8 @@ textarea {
 .facility-row .score small { display: block; margin: 0 0 .15rem; max-width: 5.5rem; font-size: .64rem; line-height: 1.2; color: var(--muted-foreground); }
 .facility-row .score strong { font-size: 1.05rem; }
 .nearby-description, .directory-notice { margin: 0; padding: .8rem 1.25rem; color: var(--muted-foreground); font-size: .8rem; }
+.nearby-status { padding: 0 1.25rem; color: var(--foreground); font-size: .875rem; }
+.nearby-status p { margin: 0; }
 .directory-notice { background: var(--muted); }
 .nearby-loading { min-height: 18rem; }
 .loading-row { min-height: 5.5rem; border-bottom: 1px solid var(--border); background: linear-gradient(var(--muted), var(--muted)) 1.25rem 1.2rem / 45% .7rem no-repeat, linear-gradient(var(--muted), var(--muted)) 1.25rem 2.7rem / 65% .6rem no-repeat; }
@@ -412,19 +416,27 @@ textarea {
   height: 100%;
   min-height: 400px;
 }
-.map-message {
+.map-notices {
   position: absolute;
   z-index: 2;
   top: 4.5rem;
   left: 1rem;
   right: 1rem;
+  display: grid;
+  gap: .5rem;
+  pointer-events: none;
+}
+.map-message {
   margin: 0;
+  pointer-events: auto;
   padding: 0.75rem;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--card);
   box-shadow: var(--shadow);
 }
+.nearby-map-status p { margin: 0; }
+.nearby-map-status button { min-height: 44px; margin: .5rem .5rem 0 0; padding: .5rem .75rem; border: 1px solid var(--border); border-radius: 7px; background: var(--card); color: var(--foreground); font-weight: 600; }
 .map-near { position: absolute; z-index: 2; top: 1rem; right: 1rem; display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-height: 44px; padding: .6rem .9rem; border: 1px solid var(--border); border-radius: 9px; background: var(--card); color: var(--foreground); box-shadow: var(--shadow); font-weight: 650; }
 .nearby-marker { display: grid; place-items: center; width: 44px; height: 44px; border: 0; background: transparent; }
 .nearby-marker::after { content: ''; width: 22px; height: 22px; border: 3px solid var(--card); border-radius: 50%; background: var(--primary); box-shadow: var(--shadow); }
@@ -499,6 +511,7 @@ textarea {
   font-size: 0.875rem;
   font-weight: 600;
 }
+.contact-links a { min-height: 44px; }
 .contact-links a,
 .inspection-extras a {
   display: inline-flex;
@@ -593,6 +606,8 @@ textarea {
   flex: 1 1 12rem;
 }
 .inspection-extras summary {
+  min-height: 44px;
+  padding-block: .7rem;
   width: fit-content;
   color: var(--foreground);
   font-weight: 600;
@@ -827,7 +842,8 @@ textarea {
     height: 34px;
   }
   .brand small,
-  .user-name {
+  .user-name,
+  .discovery-intro {
     display: none;
   }
   .auth-panel {
@@ -841,7 +857,6 @@ textarea {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 2px;
-    order: 2;
     flex: none;
     width: min(20rem, calc(100% - 2rem));
     align-self: center;
@@ -889,7 +904,8 @@ textarea {
   }
   .results-heading { padding-left: 0.8rem; }
   .sidebar .facility-row { margin: .5rem .8rem; width: calc(100% - 1.6rem); padding: 1rem; border: 1px solid var(--border); border-radius: 12px; }
-  .nearby-description, .directory-notice { padding-inline: .8rem; }
+  .nearby-description, .directory-notice, .nearby-status { padding-inline: .8rem; }
+  .permit-chips { padding-inline: .8rem; }
   .detail {
     padding-inline: 0.8rem;
   }
