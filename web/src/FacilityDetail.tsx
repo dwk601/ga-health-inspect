@@ -38,6 +38,7 @@ function Contact({ facility }: { facility: Detail['facility'] }) {
 
 export function FacilityDetail({
   id,
+  nearby,
   onClose,
   onSignIn,
   user,
@@ -46,6 +47,7 @@ export function FacilityDetail({
   load,
 }: {
   id: string
+  nearby: boolean
   onClose: () => void
   onSignIn: () => void
   user: RecordModel | null
@@ -61,7 +63,7 @@ export function FacilityDetail({
     <article className="detail">
       <button className="back" onClick={onClose}>
         <ArrowLeft size={16} aria-hidden />
-        All facilities
+        {nearby ? 'Nearby places' : 'All facilities'}
       </button>
       {error && (
         <div className="notice" role="alert">
@@ -82,6 +84,7 @@ export function FacilityDetail({
                 .join(' · ')}
             </p>
             <Contact facility={facility} />
+            <a className="community-jump" href="#community-title">Rate or comment</a>
           </header>
           <dl className="summary-grid">
             <div>

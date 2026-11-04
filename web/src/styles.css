@@ -870,6 +870,34 @@ textarea {
   }
 }
 
+/* Discovery controls keep the focus on the places, not the map chrome. */
+.discovery-intro { margin: 0 0 .2rem; color: var(--muted-foreground); font-size: .85rem; }
+.discovery-actions { display: flex; gap: .5rem; }
+.sidebar .near-button, .map-near { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-height: 44px; }
+.permit-chips { display: flex; gap: .4rem; overflow-x: auto; padding: .15rem 0 .3rem; }
+.sidebar .permit-chips button { flex: none; min-height: 44px; border-radius: 999px; }
+.sidebar .permit-chips button[aria-pressed="true"] { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+.nearby-description, .directory-notice { margin: 0; padding: .8rem 1.25rem; color: var(--muted-foreground); font-size: .8rem; }
+.directory-notice { background: var(--muted); }
+.nearby-loading { min-height: 18rem; }
+.loading-row { min-height: 5.5rem; border-bottom: 1px solid var(--border); background: linear-gradient(var(--muted), var(--muted)) 1.25rem 1.2rem / 45% .7rem no-repeat, linear-gradient(var(--muted), var(--muted)) 1.25rem 2.7rem / 65% .6rem no-repeat; }
+.facility-row .distance { color: var(--primary); font-weight: 700; font-variant-numeric: tabular-nums; }
+.score { color: var(--foreground); }
+.map-near { position: absolute; z-index: 2; top: 1rem; right: 1rem; padding: .6rem .9rem; border: 1px solid var(--border); border-radius: 9px; background: var(--card); color: var(--foreground); box-shadow: 0 2px 8px #0002; font-weight: 650; }
+.map-message { right: 9rem; }
+.nearby-marker { width: 18px; height: 18px; border: 3px solid white; border-radius: 50%; background: #164d78; box-shadow: 0 1px 5px #0008; }
+.nearby-marker.selected { outline: 3px solid #164d78; outline-offset: 2px; }
+.origin-marker { display: inline-flex; align-items: center; gap: .25rem; padding: .3rem .5rem; background: var(--card); border: 2px solid var(--primary); border-radius: 6px; color: var(--foreground); white-space: nowrap; font-size: .75rem; font-weight: 700; box-shadow: 0 2px 8px #0003; }
+.community-jump { display: inline-flex; margin-top: 1rem; min-height: 44px; align-items: center; font-weight: 700; }
+.rating-picker span { min-height: 44px; }
+@media (max-width: 720px) {
+  .workspace { position: relative; padding-bottom: 4.5rem; }
+  .mobile-switch { position: absolute; z-index: 4; bottom: .5rem; left: 50%; translate: -50% 0; width: min(20rem, calc(100% - 2rem)); margin: 0; box-shadow: 0 2px 12px #0003; }
+  .mobile-switch button { min-height: 44px; }
+  .sidebar .facility-row { margin: .5rem .8rem; width: calc(100% - 1.6rem); padding: 1rem; border: 1px solid var(--border); border-radius: 12px; }
+  .nearby-description, .directory-notice { padding-inline: .8rem; }
+}
+
 @layer base {
   .maplibregl-popup-content {
     @apply bg-transparent! shadow-none! p-0! rounded-none!;

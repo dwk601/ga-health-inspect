@@ -10,7 +10,7 @@ const postedDate = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' })
 function RatingPicker({ value }: { value: number | undefined }) {
   return <fieldset className="rating-picker">
     <legend>Your rating</legend>
-    <div>{[1, 2, 3, 4, 5].map(n => <label key={n}><input type="radio" name="rating" value={n} defaultChecked={n === value} required /><span>{n}</span></label>)}</div>
+    <div>{[1, 2, 3, 4, 5].map(n => <label key={n}><input type="radio" name="rating" value={n} aria-label={`${n} out of 5`} defaultChecked={n === value} required /><span>{n}</span></label>)}</div>
   </fieldset>
 }
 
@@ -18,6 +18,7 @@ export function CommunityPanel({ facilityId, user, refresh, onSignIn }: { facili
   const [ratings, setRatings] = useState<Item[]>([]); const [comments, setComments] = useState<Item[]>([])
   const [message, setMessage] = useState(''); const [loadError, setLoadError] = useState(''); const [loaded, setLoaded] = useState(false); const [version, setVersion] = useState(0)
   const [editing, setEditing] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
   useEffect(() => {
     let active = true
     const filter = pb.filter('facility_id = {:id}', { id: facilityId })
@@ -30,12 +31,13 @@ export function CommunityPanel({ facilityId, user, refresh, onSignIn }: { facili
     const own = ratings.find(r => r.owner === user?.id)
     const body = String(data.get('body') ?? '').trim()
     if (kind === 'comments' && !visibleText.test(body)) { setMessage("Comment can't be blank."); return }
+    setPending(true)
     try {
       if (kind === 'ratings' && own) await pb.collection(kind).update(own.id, { rating: Number(data.get('rating')) })
       else await pb.collection(kind).create({ owner: user?.id, facility_id: facilityId, ...(kind === 'ratings' ? { rating: Number(data.get('rating')) } : { body }) })
       if (kind === 'comments') form.reset()
       setMessage(kind === 'ratings' ? 'Rating saved.' : 'Comment posted.'); updated()
-    } catch (error) { setMessage(errorMessage(error, kind === 'ratings' ? 'save your rating' : 'post your comment', kind === 'ratings' && !!own, true)); void refreshAuth() }
+    } catch (error) { setMessage(errorMessage(error, kind === 'ratings' ? 'save your rating' : 'post your comment', kind === 'ratings' && !!own, true)); void refreshAuth() } finally { setPending(false) }
   }
   async function remove(kind: 'ratings' | 'comments', item: Item) {
     if (!window.confirm(`Remove this ${kind === 'ratings' ? 'rating' : 'comment'}?`)) return
@@ -71,16 +73,16 @@ export function CommunityPanel({ facilityId, user, refresh, onSignIn }: { facili
     {user?.verified ? <div className="contribute">
       <form onSubmit={e => submit(e, 'ratings')} className="compact-form">
         <RatingPicker key={`${user.id}-${ownRating ?? 'new'}`} value={ownRating} />
-        <button className="primary">{ownRating ? 'Update rating' : 'Save rating'}</button>
+        <button className="primary" disabled={pending}>{pending ? 'Saving…' : ownRating ? 'Update rating' : 'Save rating'}</button>
       </form>
       <form onSubmit={e => submit(e, 'comments')}>
         <label htmlFor="comment">Your comment<textarea id="comment" name="body" maxLength={2000} required rows={3} placeholder="What was your visit like?" /></label>
-        <button className="primary">Post comment</button>
+        <button className="primary" disabled={pending}>{pending ? 'Saving…' : 'Post comment'}</button>
       </form>
     </div> : <div className="notice">{user
       ? <p>Verify your email to post a rating or comment. <button className="text-button" onClick={resendVerification}>Resend verification email</button></p>
       : <><p>Sign in with a verified email to rate this place or leave a comment.</p><button onClick={onSignIn}>Sign in to contribute</button></>}</div>}
-    <p role="status" className="form-status">{message || loadError}</p>
+    <p role="status" className="form-status">{message || loadError || (!loaded ? 'Loading visitor contributions…' : '')}</p>
 
     <h4>Ratings{ratings.length > 0 && <span className="count">{ratings.length}</span>}</h4>
     {loaded && ratings.length === 0 && <p className="muted">No ratings yet.</p>}

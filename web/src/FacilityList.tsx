@@ -3,7 +3,7 @@ import { ChevronRight } from 'lucide-react'
 import { formatDate } from './format'
 import type { Facility } from './types'
 
-export function FacilityList({ facilities, restoreId, onSelect }: { facilities: Facility[]; restoreId: string | null; onSelect: (id: string) => void }) {
+export function FacilityList({ facilities, restoreId, onSelect, distances }: { facilities: Facility[]; restoreId: string | null; onSelect: (id: string) => void; distances?: Map<string, number> }) {
   const restoreRow = useRef<HTMLButtonElement>(null)
   useLayoutEffect(() => {
     if (restoreId) (restoreRow.current ?? document.querySelector<HTMLInputElement>('#search'))?.focus()
@@ -15,6 +15,7 @@ export function FacilityList({ facilities, restoreId, onSelect }: { facilities: 
     return <li key={f.id}><button ref={f.id === restoreId ? restoreRow : undefined} className="facility-row" onClick={() => onSelect(f.id)}>
       <span className="facility-main">
         <strong>{f.name || 'Unnamed facility'}</strong>
+        {distances?.has(f.id) && <small className="distance">{distances.get(f.id)!.toFixed(1)} mi away</small>}
         <small>{[f.permitType, f.address || 'Address unavailable'].filter(Boolean).join(' · ')}</small>
         <small>{inspected ? `Inspected ${inspected}` : 'No inspection date'}</small>
       </span>
