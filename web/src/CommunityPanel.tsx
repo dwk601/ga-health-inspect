@@ -9,7 +9,7 @@ const postedDate = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' })
 
 function RatingPicker({ value }: { value: number | undefined }) {
   return <fieldset className="rating-picker">
-    <legend>Your rating</legend>
+    <legend>Your rating <span className="rating-hint">out of 5</span></legend>
     <div>{[1, 2, 3, 4, 5].map(n => <label key={n}><input type="radio" name="rating" value={n} aria-label={`${n} out of 5`} defaultChecked={n === value} required /><span>{n}</span></label>)}</div>
   </fieldset>
 }
@@ -68,18 +68,18 @@ export function CommunityPanel({ facilityId, user, refresh, onSignIn }: { facili
   const adminId = (item: Item) => user?.role === 'admin' && <small>User ID: {item.owner}</small>
 
   return <section className="community" aria-labelledby="community-title">
-    <h3 id="community-title">Visitor experience · 1–5</h3>
+    <h3 id="community-title" tabIndex={-1}>Visitor experience · 1–5</h3>
     <p className="muted">Visitor ratings reflect personal experiences. They are not a safety score.</p>
     {user?.verified ? <div className="contribute">
       <form onSubmit={e => submit(e, 'ratings')} className="compact-form">
         <RatingPicker key={`${user.id}-${ownRating ?? 'new'}`} value={ownRating} />
         <button className="primary" disabled={pending}>{pending ? 'Saving…' : ownRating ? 'Update rating' : 'Save rating'}</button>
       </form>
-      <form onSubmit={e => submit(e, 'comments')}>
+      <form className="comment-composer" onSubmit={e => submit(e, 'comments')}>
         <label htmlFor="comment">Your comment<textarea id="comment" name="body" maxLength={2000} required rows={3} placeholder="What was your visit like?" /></label>
         <button className="primary" disabled={pending}>{pending ? 'Saving…' : 'Post comment'}</button>
       </form>
-    </div> : <div className="notice">{user
+    </div> : <div className="notice contribute-prompt">{user
       ? <p>Verify your email to post a rating or comment. <button className="text-button" onClick={resendVerification}>Resend verification email</button></p>
       : <><p>Sign in with a verified email to rate this place or leave a comment.</p><button onClick={onSignIn}>Sign in to contribute</button></>}</div>}
     <p role="status" className="form-status">{message || loadError || (!loaded ? 'Loading visitor contributions…' : '')}</p>

@@ -29,12 +29,9 @@ function selectedFromURL() {
   try { return match ? decodeURIComponent(match[1]) : null } catch { return null }
 }
 
-function useInspectionData(query: string, permit: string, paused: boolean) {
-  const [facilities, setFacilities] = useState<Facility[]>([])
+function useMapData() {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [mapMessage, setMapMessage] = useState('')
-  const [searchMessage, setSearchMessage] = useState('')
-  const [searching, setSearching] = useState(true)
   const [pointsVersion, setPointsVersion] = useState(0)
   const [pointsLoading, setPointsLoading] = useState(true)
 
@@ -46,7 +43,13 @@ function useInspectionData(query: string, permit: string, paused: boolean) {
       setMapMessage(stale ? `Showing an older map snapshot${generated} because the inspection source is unavailable.` : '')
     }).catch(error => setMapMessage(error.message)).finally(() => setPointsLoading(false))
   }, [pointsVersion])
+  return { snapshot, mapMessage, pointsLoading, retryPoints: () => setPointsVersion(v => v + 1) }
+}
 
+function useStatewideSearch(query: string, permit: string, paused: boolean) {
+  const [facilities, setFacilities] = useState<Facility[]>([])
+  const [searchMessage, setSearchMessage] = useState('')
+  const [searching, setSearching] = useState(true)
   useEffect(() => {
     if (paused) return
     const controller = new AbortController()
@@ -65,8 +68,7 @@ function useInspectionData(query: string, permit: string, paused: boolean) {
     return () => { clearTimeout(timer); controller.abort() }
   }, [query, permit, paused])
 
-  const points = useMemo(() => (snapshot?.points || []).filter(p => !permit || p.permitType === permit), [snapshot, permit])
-  return { facilities, snapshot, points, mapMessage, searchMessage, searching, pointsLoading, retryPoints: () => setPointsVersion(v => v + 1) }
+  return { facilities, searchMessage, searching }
 }
 
 function Header({ theme, toggleTheme, user, auth, setAuth, home, accountRef }: {
@@ -137,12 +139,14 @@ export default function App() {
   const currentDetail = detailState?.id === selected ? detailState : null
   const [query, setQuery] = useState('')
   const [permit, setPermit] = useState('')
-  const [nearbyMode, setNearbyMode] = useState(false)
-  const { facilities, snapshot, points, mapMessage, searchMessage, searching, pointsLoading, retryPoints } = useInspectionData(query, permit, nearbyMode)
+  const { snapshot, mapMessage, pointsLoading, retryPoints } = useMapData()
   const nearby = useNearby(snapshot, permit)
-  const startNearby = () => { setQuery(''); setNearbyMode(true); nearby.locate() }
-  const exitNearby = () => { setNearbyMode(false); nearby.exit() }
-  const updateQuery = (value: string) => { if (nearbyMode) exitNearby(); setQuery(value) }
+  const { facilities, searchMessage, searching } = useStatewideSearch(query, permit, nearby.active)
+  const points = useMemo(() => (snapshot?.points || []).filter(p => !permit || p.permitType === permit), [snapshot, permit])
+  const fitPoints = useMemo(() => nearby.candidates.map(c => c.point), [nearby.candidates])
+  const startNearby = () => { setQuery(''); nearby.locate() }
+  const exitNearby = nearby.exit
+  const updateQuery = (value: string) => { if (nearby.active) exitNearby(); setQuery(value) }
   const [user, setUser] = useState<RecordModel | null>(pb.authStore.record)
   const [initialRecovery, setInitialRecovery] = useState(() => new URLSearchParams(location.search).get('resend') === 'verification')
   const [auth, setAuth] = useState(initialRecovery)
@@ -180,7 +184,7 @@ export default function App() {
   useEffect(() => { document.documentElement.classList.toggle('dark', theme === 'dark'); document.documentElement.style.colorScheme = theme }, [theme])
   useEffect(() => {
     const handler = () => {
-      if (nearby.locating) exitNearby()
+      if (nearby.locating) nearby.exit()
       setPath(location.pathname)
       const next = selectedFromURL()
       if (!next && selected) setRestoreId(selected)
@@ -220,7 +224,7 @@ export default function App() {
       <div ref={mapRef} tabIndex={-1} className={`map-panel ${mobileMap ? '' : 'mobile-hidden'}`}>
         {mapMessage && <p className="map-message" role="status">{mapMessage}</p>}
         <button className="map-near" onClick={nearby.locating ? exitNearby : startNearby}><LocateFixed size={17} aria-hidden /> {nearby.locating ? 'Cancel locating' : 'Near me'}</button>
-        <MapImportBoundary key={mapAttempt} onRetry={retryMapImport}><Suspense fallback={<div className="map-failure">Loading map…</div>}><LazyMapView points={nearby.active ? nearby.points : points} fitPoints={nearby.candidates.map(c => c.point)} ready={!!snapshot} origin={nearby.origin} nearby={nearby.active} selected={selected} onSelect={select} theme={theme} detail={currentDetail?.detail?.facility ?? null} detailError={!!currentDetail?.error} /></Suspense></MapImportBoundary>
+        <MapImportBoundary key={mapAttempt} onRetry={retryMapImport}><Suspense fallback={<div className="map-failure">Loading map…</div>}><LazyMapView points={nearby.active ? nearby.points : points} facilities={nearby.facilities} fitPoints={fitPoints} ready={!!snapshot} origin={nearby.origin} nearby={nearby.active} selected={selected} onSelect={select} theme={theme} detail={currentDetail?.detail?.facility ?? null} detailError={!!currentDetail?.error} /></Suspense></MapImportBoundary>
       </div>
     </main>
   </>

@@ -84,7 +84,7 @@ export function FacilityDetail({
                 .join(' · ')}
             </p>
             <Contact facility={facility} />
-            <a className="community-jump" href="#community-title">Rate or comment</a>
+            <button className="community-jump" onClick={() => document.getElementById('community-title')?.focus()}>Rate or comment</button>
           </header>
           <dl className="summary-grid">
             <div>
