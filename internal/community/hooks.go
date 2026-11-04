@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -12,6 +13,36 @@ import (
 
 // Register installs the user role protections and public author-name enrichment.
 func Register(app core.App) {
+	var mu sync.Mutex
+	recent := make(map[string]time.Time)
+	allowEmail := func(kind, email string) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		now := time.Now()
+		for key, at := range recent {
+			if now.Sub(at) >= time.Minute {
+				delete(recent, key)
+			}
+		}
+		key := kind + ":" + strings.ToLower(strings.TrimSpace(email))
+		if _, exists := recent[key]; exists || len(recent) >= 10000 {
+			return false
+		}
+		recent[key] = now
+		return true
+	}
+	app.OnRecordRequestVerificationRequest("users").BindFunc(func(e *core.RecordRequestVerificationRequestEvent) error {
+		if !allowEmail("verify", e.Record.Email()) {
+			return e.NoContent(http.StatusNoContent)
+		}
+		return e.Next()
+	})
+	app.OnRecordRequestPasswordResetRequest("users").BindFunc(func(e *core.RecordRequestPasswordResetRequestEvent) error {
+		if !allowEmail("reset", e.Record.Email()) {
+			return e.NoContent(http.StatusNoContent)
+		}
+		return e.Next()
+	})
 	app.OnRecordCreateRequest("users").BindFunc(func(e *core.RecordRequestEvent) error {
 		if e.Record.GetString("role") == "" {
 			e.Record.Set("role", "user")

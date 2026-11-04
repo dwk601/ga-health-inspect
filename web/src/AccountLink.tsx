@@ -1,10 +1,12 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { pb } from './api'
 
 export function AccountLink({ kind, token }: { kind: 'verify' | 'reset-password'; token: string }) {
   const [message, setMessage] = useState('')
   const [success, setSuccess] = useState(false)
   const [busy, setBusy] = useState(kind === 'verify')
+  const backLink = useRef<HTMLAnchorElement>(null)
+  useEffect(() => { if (success && kind === 'reset-password') backLink.current?.focus() }, [success, kind])
 
   useEffect(() => {
     if (kind !== 'verify') return
@@ -20,6 +22,7 @@ export function AccountLink({ kind, token }: { kind: 'verify' | 'reset-password'
 
   async function reset(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (busy) return
     const data = new FormData(event.currentTarget)
     const password = String(data.get('password'))
     const confirm = String(data.get('confirm'))
@@ -45,10 +48,10 @@ export function AccountLink({ kind, token }: { kind: 'verify' | 'reset-password'
       <p id="password-help">Use at least 8 characters. Both fields are required.</p>
       <label htmlFor="new-password">New password<input id="new-password" name="password" type="password" autoComplete="new-password" minLength={8} aria-describedby="password-help" required /></label>
       <label htmlFor="confirm-password">Confirm password<input id="confirm-password" name="confirm" type="password" autoComplete="new-password" minLength={8} required /></label>
-      <button className="primary" disabled={busy}>Reset password</button>
+      <button className="primary" aria-disabled={busy}>Reset password</button>
     </form>}
     <p role="status">{message}</p>
     {kind === 'verify' && !busy && !success && <p><a href="/?resend=verification">Resend verification email</a></p>}
-    <a href="/">Back to map</a>
+    <a ref={backLink} href="/">Back to map</a>
   </main>
 }

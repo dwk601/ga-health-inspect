@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { ClientResponseError } from 'pocketbase'
 import { pb, errorMessage, refreshAuth } from './api'
 
 export function AuthPanel({ onClose, initialRecovery = false }: { onClose: () => void; initialRecovery?: boolean }) {
@@ -9,7 +10,8 @@ export function AuthPanel({ onClose, initialRecovery = false }: { onClose: () =>
   const emailRef = useRef<HTMLInputElement>(null)
   useEffect(() => { emailRef.current?.focus() }, [signup, recovery])
   async function submit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault(); setBusy(true); setMessage('')
+    e.preventDefault(); if (busy) return
+    setBusy(true); setMessage('')
     const data = new FormData(e.currentTarget)
     const email = String(data.get('email')); const password = String(data.get('password'))
     try {
@@ -19,8 +21,13 @@ export function AuthPanel({ onClose, initialRecovery = false }: { onClose: () =>
         setMessage('If the address is eligible, an email will be sent shortly.')
       } else if (signup) {
         await pb.collection('users').create({ name: data.get('name'), email, password, passwordConfirm: password })
-        await pb.collection('users').requestVerification(email)
-        setMessage('Account created. Check your email to verify your account, then sign in.')
+        try {
+          await pb.collection('users').requestVerification(email)
+          setMessage('Account created. Check your email to verify your account, then sign in.')
+        } catch (error) {
+          if (!(error instanceof ClientResponseError) || error.status !== 429) throw error
+          setMessage('Account created. You can resend verification later, then sign in.')
+        }
       } else {
         await pb.collection('users').authWithPassword(email, password)
         await refreshAuth()
@@ -33,6 +40,6 @@ export function AuthPanel({ onClose, initialRecovery = false }: { onClose: () =>
     {signup && !recovery && <label htmlFor="auth-name">Name<input id="auth-name" name="name" autoComplete="name" maxLength={60} required /></label>}
     <label htmlFor="auth-email">Email<input ref={emailRef} id="auth-email" name="email" type="email" autoComplete="email" required /></label>
     {!recovery && <label htmlFor="auth-password">Password<input id="auth-password" name="password" type="password" autoComplete={signup ? 'new-password' : 'current-password'} minLength={8} required /></label>}
-    <button className="primary" disabled={busy}>{recovery ? 'Send email' : signup ? 'Create account' : 'Sign in'}</button>
+    <button className="primary" aria-disabled={busy}>{recovery ? 'Send email' : signup ? 'Create account' : 'Sign in'}</button>
   </form><p role="status">{message}</p>{!signup && !recovery && <><button className="text-button" onClick={() => { setRecovery('reset'); setMessage('') }}>Forgot password?</button>{' '}<button className="text-button" onClick={() => { setRecovery('verify'); setMessage('') }}>Resend verification email</button></>}{recovery ? <button className="text-button" onClick={() => { setRecovery(null); setMessage('') }}>Back to sign in</button> : <button className="text-button" onClick={() => { setSignup(!signup); setMessage('') }}>{signup ? 'Already have an account? Sign in' : 'New here? Create an account'}</button>}</div>
 }

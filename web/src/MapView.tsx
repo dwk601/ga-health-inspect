@@ -2,15 +2,12 @@ import { Component, useCallback, useEffect, useMemo, useRef, useState, type Reac
 import { Map, MapClusterLayer, MapControls, MapPopup, useMap } from '@/components/ui/map'
 import type { ErrorEvent as MapErrorEvent } from 'maplibre-gl'
 import type { Facility, Point } from './types'
+import { MapFailure } from './MapFailure'
 
 class MapErrorBoundary extends Component<{ children: ReactNode; onRetry: () => void }, { failed: boolean }> {
   state = { failed: false }
   static getDerivedStateFromError() { return { failed: true } }
   render() { return this.state.failed ? <MapFailure onRetry={this.props.onRetry} /> : this.props.children }
-}
-
-function MapFailure({ onRetry }: { onRetry: () => void }) {
-  return <div className="map-failure"><p role="status">The map could not be loaded. You can still search and view facility details.</p><button onClick={onRetry}>Retry</button></div>
 }
 
 function MapLoadMonitor({ onLoaded, onFailure }: { onLoaded: () => void; onFailure: () => void }) {

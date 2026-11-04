@@ -5,12 +5,15 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -578,7 +581,7 @@ func TestCommunityPermissions(t *testing.T) {
 		t.Fatalf("private owner expansion: %v", expanded)
 	}
 	request("GET", users+"/"+owner.Id, "", nil, 404)
-	for _, body := range []string{" \t\n ", "\v", "\ufeff"} {
+	for _, body := range []string{" \t\n ", "\v", "\ufeff", "\u200b"} {
 		request("PATCH", comments+"/"+cid, ownerToken, map[string]any{"body": body}, 400)
 	}
 	request("PATCH", comments+"/"+cid, ownerToken, map[string]any{"body": strings.Repeat("x", 2001)}, 400)
@@ -618,6 +621,47 @@ func TestCommunityPermissions(t *testing.T) {
 		for _, status := range []int{204, 204, 429} {
 			request("POST", "/api/collections/users/"+endpoint, "", map[string]any{"email": "unknown@example.test"}, status)
 		}
+	}
+
+	// Count requests that pass the email gate, before PocketBase dispatches mail.
+	var verificationCalls, resetCalls atomic.Int32
+	pb.OnRecordRequestVerificationRequest("users").BindFunc(func(e *core.RecordRequestVerificationRequestEvent) error {
+		verificationCalls.Add(1)
+		return e.Next()
+	})
+	pb.OnRecordRequestPasswordResetRequest("users").BindFunc(func(e *core.RecordRequestPasswordResetRequestEvent) error {
+		resetCalls.Add(1)
+		return e.Next()
+	})
+	for _, endpoint := range []string{"request-verification", "request-password-reset"} {
+		var wg sync.WaitGroup
+		statuses := make(chan int, 12)
+		for i := 0; i < 12; i++ {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				req, _ := http.NewRequest("POST", server.URL+"/api/collections/users/"+endpoint, strings.NewReader(`{"email":"signup@example.test"}`))
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("X-Forwarded-For", fmt.Sprintf("192.0.2.%d", i+1))
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					statuses <- 0
+					return
+				}
+				resp.Body.Close()
+				statuses <- resp.StatusCode
+			}(i)
+		}
+		wg.Wait()
+		close(statuses)
+		for status := range statuses {
+			if status != 204 {
+				t.Errorf("%s: got %d", endpoint, status)
+			}
+		}
+	}
+	if verificationCalls.Load() != 1 || resetCalls.Load() != 1 {
+		t.Fatalf("email gate: verification=%d reset=%d", verificationCalls.Load(), resetCalls.Load())
 	}
 
 	// A source outage blocks new and edited contributions, not reads or moderation.

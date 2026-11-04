@@ -59,9 +59,6 @@ func configureSettings(app core.App) error {
 		s.SMTP.Username = os.Getenv("SMTP_USERNAME")
 		s.SMTP.Password = os.Getenv("SMTP_PASSWORD")
 	}
-	if err := app.Save(s); err != nil {
-		return err
-	}
 	users, err := app.FindCollectionByNameOrId("users")
 	if err != nil {
 		return err

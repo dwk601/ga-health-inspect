@@ -1,13 +1,27 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Component, Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import type { RecordModel } from 'pocketbase'
 import { MapPinned, Moon, Sun } from 'lucide-react'
 import { pb, getPoints, getDetail, search, refreshAuth } from './api'
-import { MapView } from './MapView'
+import { MapFailure } from './MapFailure'
 import { FacilityList } from './FacilityList'
 import { FacilityDetail } from './FacilityDetail'
 import { AuthPanel } from './AuthPanel'
 import { AccountLink } from './AccountLink'
 import type { Detail, Facility, Snapshot } from './types'
+
+const createMapView = () => lazy(async () => {
+  const { setWorkerUrl } = await import('maplibre-gl')
+  setWorkerUrl(workerUrl)
+  const { MapView } = await import('./MapView')
+  return { default: MapView }
+})
+
+class MapImportBoundary extends Component<{ children: ReactNode; onRetry: () => void }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  render() { return this.state.failed ? <MapFailure onRetry={this.props.onRetry} /> : this.props.children }
+}
 
 function selectedFromURL() {
   const match = location.pathname.match(/^\/facilities\/(.+)$/)
@@ -101,6 +115,9 @@ export default function App() {
     history.replaceState(history.state, '', url)
   }, [initialRecovery])
   const [mobileMap, setMobileMap] = useState(false)
+  const [mapAttempt, setMapAttempt] = useState(0)
+  const [LazyMapView, setLazyMapView] = useState(createMapView)
+  const retryMapImport = () => { setLazyMapView(createMapView()); setMapAttempt(n => n + 1) }
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const stored = localStorage.getItem('theme')
     return stored === 'light' || stored === 'dark' ? stored : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
@@ -153,7 +170,7 @@ export default function App() {
       </aside>
       <div className={`map-panel ${mobileMap ? '' : 'mobile-hidden'}`}>
         {mapMessage && <p className="map-message" role="status">{mapMessage}</p>}
-        <MapView points={points} selected={selected} onSelect={select} theme={theme} detail={currentDetail?.detail?.facility ?? null} detailError={!!currentDetail?.error} />
+        <MapImportBoundary key={mapAttempt} onRetry={retryMapImport}><Suspense fallback={<div className="map-failure">Loading map…</div>}><LazyMapView points={points} selected={selected} onSelect={select} theme={theme} detail={currentDetail?.detail?.facility ?? null} detailError={!!currentDetail?.error} /></Suspense></MapImportBoundary>
       </div>
     </main>
   </>
