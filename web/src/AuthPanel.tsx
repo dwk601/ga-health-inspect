@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { ClientResponseError } from 'pocketbase'
+import { X } from 'lucide-react'
 import { pb, errorMessage, refreshAuth } from './api'
 
 export function AuthPanel({ onClose, onSignedIn, initialRecovery = false }: { onClose: () => void; onSignedIn: () => void; initialRecovery?: boolean }) {
@@ -36,10 +37,23 @@ export function AuthPanel({ onClose, onSignedIn, initialRecovery = false }: { on
       }
     } catch (error) { setMessage(errorMessage(error, recovery === 'reset' ? 'request a password reset' : recovery === 'verify' ? 'resend verification' : signup ? 'create your account or send verification' : 'sign in')) } finally { setBusy(false) }
   }
-  return <div className="auth-panel"><div className="section-heading"><h2 aria-live="polite">{recovery === 'reset' ? 'Reset password' : recovery === 'verify' ? 'Resend verification email' : signup ? 'Create account' : 'Sign in'}</h2><button className="text-button" onClick={onClose}>Close</button></div>{!recovery && <p>Verify your email before posting a rating or comment.</p>}<form onSubmit={submit} method="post">
-    {signup && !recovery && <label htmlFor="auth-name">Name<input id="auth-name" name="name" autoComplete="name" maxLength={60} required /></label>}
-    <label htmlFor="auth-email">Email<input ref={emailRef} id="auth-email" name="email" type="email" autoComplete="email" required /></label>
-    {!recovery && <label htmlFor="auth-password">Password<input id="auth-password" name="password" type="password" autoComplete={signup ? 'new-password' : 'current-password'} minLength={8} required /></label>}
-    <button className="primary" aria-disabled={busy}>{recovery ? 'Send email' : signup ? 'Create account' : 'Sign in'}</button>
-  </form><p role="status">{message}</p>{!signup && !recovery && <><button className="text-button" onClick={() => { setRecovery('reset'); setMessage('') }}>Forgot password?</button>{' '}<button className="text-button" onClick={() => { setRecovery('verify'); setMessage('') }}>Resend verification email</button></>}{recovery ? <button className="text-button" onClick={() => { setRecovery(null); setMessage('') }}>Back to sign in</button> : <button className="text-button" onClick={() => { setSignup(!signup); setMessage('') }}>{signup ? 'Already have an account? Sign in' : 'New here? Create an account'}</button>}</div>
+  const title = recovery === 'reset' ? 'Reset password' : recovery === 'verify' ? 'Resend verification email' : signup ? 'Create account' : 'Sign in'
+  const switchTo = (next: { signup?: boolean; recovery?: 'reset' | 'verify' | null }) => { setSignup(next.signup ?? false); setRecovery(next.recovery ?? null); setMessage('') }
+  return <section className="auth-panel" aria-labelledby="auth-title">
+    <div className="section-heading"><h2 id="auth-title" aria-live="polite">{title}</h2><button className="icon-button" onClick={onClose} aria-label="Close"><X size={18} /></button></div>
+    <p>{recovery === 'reset' ? 'Enter your email and we’ll send a reset link.' : recovery === 'verify' ? 'Enter your email and we’ll send a new verification link.' : 'Verify your email before posting a rating or comment.'}</p>
+    <form onSubmit={submit} method="post">
+      {signup && !recovery && <label htmlFor="auth-name">Name<input id="auth-name" name="name" autoComplete="name" maxLength={60} required /></label>}
+      <label htmlFor="auth-email">Email<input ref={emailRef} id="auth-email" name="email" type="email" autoComplete="email" required /></label>
+      {!recovery && <label htmlFor="auth-password">Password<input id="auth-password" name="password" type="password" autoComplete={signup ? 'new-password' : 'current-password'} minLength={8} aria-describedby={signup ? 'auth-password-help' : undefined} required />{signup && <small id="auth-password-help">At least 8 characters.</small>}</label>}
+      <button className="primary block" aria-disabled={busy}>{busy ? 'Please wait…' : recovery ? 'Send email' : signup ? 'Create account' : 'Sign in'}</button>
+    </form>
+    <p role="status" className="form-status">{message}</p>
+    <div className="auth-links">
+      {recovery ? <button className="text-button" onClick={() => switchTo({})}>Back to sign in</button> : <>
+        <button className="text-button" onClick={() => switchTo({ signup: !signup })}>{signup ? 'Already have an account? Sign in' : 'New here? Create an account'}</button>
+        {!signup && <><button className="text-button" onClick={() => switchTo({ recovery: 'reset' })}>Forgot password?</button><button className="text-button" onClick={() => switchTo({ recovery: 'verify' })}>Resend verification email</button></>}
+      </>}
+    </div>
+  </section>
 }

@@ -149,9 +149,15 @@ func TestInspectionAPI(t *testing.T) {
 		t.Setenv("REDIS_URL", cache)
 		return startTestServer(t)
 	}
-	request := func(server *httptest.Server, path string, headers map[string]string) (int, http.Header, []byte) {
+	request := func(server *httptest.Server, path string, headers map[string]string, data ...string) (int, http.Header, []byte) {
 		t.Helper()
-		req, err := http.NewRequest("GET", server.URL+path, nil)
+		method := http.MethodGet
+		var payload io.Reader
+		if len(data) > 0 {
+			method = http.MethodPost
+			payload = strings.NewReader(data[0])
+		}
+		req, err := http.NewRequest(method, server.URL+path, payload)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -345,6 +351,64 @@ func TestInspectionAPI(t *testing.T) {
 	updatedETag := h.Get("ETag")
 	deadDB := "postgres://ga_inspect_reader:scratch-reader-only@127.0.0.1:1/health_scratch?sslmode=disable&connect_timeout=1"
 	stale, _ := start(deadDB, redisURL)
+	for _, tc := range []struct {
+		name   string
+		body   string
+		server *httptest.Server
+		status int
+		ids    []string
+		scores []*float64
+	}{
+		{name: "ordered deduplicated", body: `{"ids":["zero","unknown","123456789012345678","zero","pin"]}`, status: 200, ids: []string{"zero", "123456789012345678", "pin"}, scores: []*float64{new(float64), nil, func() *float64 { v := 92.0; return &v }()}},
+		{name: "unknown", body: `{"ids":["unknown"]}`, status: 200, ids: []string{}},
+		{name: "twenty ids", body: `{"ids":[` + strings.Repeat(`"pin",`, 19) + `"pin"]}`, status: 200, ids: []string{"pin"}},
+		{name: "maximum id length", body: `{"ids":["` + strings.Repeat("x", 500) + `"]}`, status: 200, ids: []string{}},
+		{name: "missing", body: `{}`, status: 400},
+		{name: "empty", body: `{"ids":[]}`, status: 400},
+		{name: "null array", body: `{"ids":null}`, status: 400},
+		{name: "null id", body: `{"ids":[null]}`, status: 400},
+		{name: "number", body: `{"ids":[123]}`, status: 400},
+		{name: "empty id", body: `{"ids":[""]}`, status: 400},
+		{name: "nul", body: `{"ids":["\u0000"]}`, status: 400},
+		{name: "utf8", body: "{\"ids\":[\"\xff\"]}", status: 400},
+		{name: "long id", body: `{"ids":["` + strings.Repeat("x", 501) + `"]}`, status: 400},
+		{name: "too many before dedupe", body: `{"ids":[` + strings.Repeat(`"pin",`, 20) + `"pin"]}`, status: 400},
+		{name: "malformed", body: `{"ids":["pin"]} {}`, status: 400},
+		{name: "oversize", body: strings.Repeat(" ", 16*1024+1), status: 413},
+		{name: "source failure", body: `{"ids":["pin"]}`, server: stale, status: 503},
+	} {
+		t.Run("lookup/"+tc.name, func(t *testing.T) {
+			target := tc.server
+			if target == nil {
+				target = server
+			}
+			status, headers, body := request(target, "/api/inspect/facilities/lookup", nil, tc.body)
+			if status != tc.status || headers.Get("Cache-Control") != "no-store" {
+				t.Fatalf("status=%d headers=%v body=%s", status, headers, body)
+			}
+			if status != 200 {
+				return
+			}
+			var result struct {
+				Facilities []struct {
+					ID    string   `json:"id"`
+					Score *float64 `json:"lastInspectionScore"`
+				} `json:"facilities"`
+			}
+			if err := json.Unmarshal(body, &result); err != nil || result.Facilities == nil || len(result.Facilities) != len(tc.ids) {
+				t.Fatalf("invalid response: %s (%v)", body, err)
+			}
+			for i, id := range tc.ids {
+				f := result.Facilities[i]
+				if f.ID != id {
+					t.Fatalf("order: %s", body)
+				}
+				if tc.scores != nil && ((f.Score == nil) != (tc.scores[i] == nil) || (f.Score != nil && *f.Score != *tc.scores[i])) {
+					t.Fatalf("score: %s", body)
+				}
+			}
+		})
+	}
 	var staleBody []byte
 	deadline := time.Now().Add(2 * time.Second)
 	for {

@@ -34,6 +34,11 @@ export async function getPoints(): Promise<{ snapshot: Snapshot; stale: boolean 
 export function search(q: string, permit: string, signal: AbortSignal) {
   return get<{ facilities: Facility[] }>(`/api/inspect/search?${new URLSearchParams({ q, permit })}`, signal)
 }
+export async function lookupFacilities(ids: string[], signal: AbortSignal) {
+  const response = await fetch('/api/inspect/facilities/lookup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }), signal })
+  if (!response.ok) throw new Error('Place details unavailable')
+  return (await response.json() as { facilities: Facility[] }).facilities
+}
 export function getDetail(id: string) { return get<Detail>(`/api/inspect/facilities/${encodeURIComponent(id)}`) }
 export function errorMessage(error: unknown, action: string, restrictedRecord = false, contributionWrite = false): string {
   if (typeof error === 'object' && error && 'status' in error) {
