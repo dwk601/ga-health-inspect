@@ -578,7 +578,9 @@ func TestCommunityPermissions(t *testing.T) {
 		t.Fatalf("private owner expansion: %v", expanded)
 	}
 	request("GET", users+"/"+owner.Id, "", nil, 404)
-	request("PATCH", comments+"/"+cid, ownerToken, map[string]any{"body": " \t\n "}, 400)
+	for _, body := range []string{" \t\n ", "\v", "\ufeff"} {
+		request("PATCH", comments+"/"+cid, ownerToken, map[string]any{"body": body}, 400)
+	}
 	request("PATCH", comments+"/"+cid, ownerToken, map[string]any{"body": strings.Repeat("x", 2001)}, 400)
 	request("PATCH", comments+"/"+cid, otherToken, map[string]any{"body": "hacked"}, 404)
 	request("PATCH", comments+"/"+cid, ownerToken, map[string]any{"body": "updated"}, 200)
@@ -610,6 +612,12 @@ func TestCommunityPermissions(t *testing.T) {
 	aggregate = detail["community"].(map[string]any)
 	if aggregate["ratingCount"] != float64(0) || aggregate["ratingAverage"] != nil {
 		t.Fatalf("aggregate after delete: %v", aggregate)
+	}
+
+	for _, endpoint := range []string{"request-verification", "request-password-reset"} {
+		for _, status := range []int{204, 204, 429} {
+			request("POST", "/api/collections/users/"+endpoint, "", map[string]any{"email": "unknown@example.test"}, status)
+		}
 	}
 
 	// A source outage blocks new and edited contributions, not reads or moderation.

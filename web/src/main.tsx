@@ -1,9 +1,8 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { setWorkerUrl } from 'maplibre-gl'
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import './styles.css'
 
-setWorkerUrl('/maplibre-gl-worker.mjs')
-void import('./App').then(({ default: App }) => {
+void import('maplibre-gl').then(({ setWorkerUrl }) => setWorkerUrl(workerUrl)).then(() => import('./App')).then(({ default: App }) => {
   createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>)
 })

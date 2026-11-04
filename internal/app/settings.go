@@ -26,6 +26,15 @@ func configureSettings(app core.App) error {
 	s.TrustedProxy.Headers = []string{"X-Forwarded-For"}
 	s.TrustedProxy.UseLeftmostIP = false
 	s.RateLimits.Enabled = true
+	for _, label := range []string{"*:requestVerification", "*:requestPasswordReset"} {
+		rules := s.RateLimits.Rules[:0]
+		for _, rule := range s.RateLimits.Rules {
+			if rule.Label != label {
+				rules = append(rules, rule)
+			}
+		}
+		s.RateLimits.Rules = append(rules, core.RateLimitRule{Label: label, MaxRequests: 2, Duration: 60})
+	}
 	if host := os.Getenv("SMTP_HOST"); host != "" {
 		port := 587
 		if value := os.Getenv("SMTP_PORT"); value != "" {
@@ -49,6 +58,9 @@ func configureSettings(app core.App) error {
 		s.SMTP.TLS = tls
 		s.SMTP.Username = os.Getenv("SMTP_USERNAME")
 		s.SMTP.Password = os.Getenv("SMTP_PASSWORD")
+	}
+	if err := app.Save(s); err != nil {
+		return err
 	}
 	users, err := app.FindCollectionByNameOrId("users")
 	if err != nil {

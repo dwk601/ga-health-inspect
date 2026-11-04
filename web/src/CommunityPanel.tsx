@@ -18,7 +18,7 @@ export function CommunityPanel({ facilityId, user, refresh }: { facilityId: stri
     e.preventDefault(); const form = e.currentTarget; const data = new FormData(form)
     const own = ratings.find(r => r.owner === user?.id)
     const body = String(data.get('body') ?? '').trim()
-    if (kind === 'comments' && !body) { setMessage('Comments must contain 1–2000 characters.'); return }
+    if (kind === 'comments' && !body) { setMessage("Comment can't be blank"); return }
     try {
       if (kind === 'ratings' && own) await pb.collection(kind).update(own.id, { rating: Number(data.get('rating')) })
       else await pb.collection(kind).create({ owner: user?.id, facility_id: facilityId, ...(kind === 'ratings' ? { rating: Number(data.get('rating')) } : { body }) })
@@ -37,7 +37,8 @@ export function CommunityPanel({ facilityId, user, refresh }: { facilityId: stri
     if (input === null) return
     const body = input.trim()
     if (body === item.body) return
-    if (!body || body.length > 2000) { setMessage('Comments must contain 1–2000 characters.'); return }
+    if (!body) { setMessage("Comment can't be blank"); return }
+    if (body.length > 2000) { setMessage('Comments must contain 1–2000 characters.'); return }
     try { await pb.collection('comments').update(item.id, { body }); setMessage('Comment updated.'); updated() } catch (e) { setMessage(errorMessage(e, 'update your comment', true, true)) }
   }
   async function resendVerification() {
