@@ -76,7 +76,7 @@ func (s *service) lookup(e *core.RequestEvent) error {
 	seen := make(map[string]bool, len(input.IDs))
 	for _, raw := range input.IDs {
 		var id string
-		if string(raw) == "null" || json.Unmarshal(raw, &id) != nil || id == "" || len(id) > 500 || !validText(id) {
+		if json.Unmarshal(raw, &id) != nil || id == "" || len(id) > 500 || !validText(id) {
 			return e.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 		}
 		if !seen[id] {

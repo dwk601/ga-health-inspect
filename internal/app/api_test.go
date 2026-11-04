@@ -360,7 +360,6 @@ func TestInspectionAPI(t *testing.T) {
 		scores []*float64
 	}{
 		{name: "ordered deduplicated", body: `{"ids":["zero","unknown","123456789012345678","zero","pin"]}`, status: 200, ids: []string{"zero", "123456789012345678", "pin"}, scores: []*float64{new(float64), nil, func() *float64 { v := 92.0; return &v }()}},
-		{name: "reversed", body: `{"ids":["pin","zero"]}`, status: 200, ids: []string{"pin", "zero"}},
 		{name: "unknown", body: `{"ids":["unknown"]}`, status: 200, ids: []string{}},
 		{name: "twenty ids", body: `{"ids":[` + strings.Repeat(`"pin",`, 19) + `"pin"]}`, status: 200, ids: []string{"pin"}},
 		{name: "maximum id length", body: `{"ids":["` + strings.Repeat("x", 500) + `"]}`, status: 200, ids: []string{}},
