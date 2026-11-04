@@ -1,7 +1,7 @@
 import { Component, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import type { RecordModel } from 'pocketbase'
-import { MapPinned, Moon, Sun } from 'lucide-react'
+import { MapPinned, Moon, Search, Sun } from 'lucide-react'
 import { pb, getPoints, getDetail, search, refreshAuth } from './api'
 import { MapFailure } from './MapFailure'
 import { FacilityList } from './FacilityList'
@@ -33,6 +33,7 @@ function useInspectionData(query: string, permit: string) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [mapMessage, setMapMessage] = useState('')
   const [searchMessage, setSearchMessage] = useState('')
+  const [searching, setSearching] = useState(true)
 
   useEffect(() => {
     getPoints().then(({ snapshot: data, stale }) => {
@@ -44,17 +45,23 @@ function useInspectionData(query: string, permit: string) {
 
   useEffect(() => {
     const controller = new AbortController()
+    setSearching(true)
     const timer = setTimeout(() => {
       search(query, permit, controller.signal).then(data => {
         setFacilities(data.facilities)
         setSearchMessage('')
-      }).catch(error => { if (error.name !== 'AbortError') setSearchMessage(error.message) })
+        setSearching(false)
+      }).catch(error => {
+        if (error.name === 'AbortError') return
+        setSearchMessage(error.message)
+        setSearching(false)
+      })
     }, 250)
     return () => { clearTimeout(timer); controller.abort() }
   }, [query, permit])
 
   const points = useMemo(() => (snapshot?.points || []).filter(p => !permit || p.permitType === permit), [snapshot, permit])
-  return { facilities, snapshot, points, mapMessage, searchMessage }
+  return { facilities, snapshot, points, mapMessage, searchMessage, searching }
 }
 
 function Header({ theme, toggleTheme, user, auth, setAuth, home, accountRef }: {
@@ -64,27 +71,40 @@ function Header({ theme, toggleTheme, user, auth, setAuth, home, accountRef }: {
   return <header className="topbar">
     <a href="/" className="brand" onClick={e => { e.preventDefault(); home() }}>
       <span className="brand-icon"><MapPinned size={21} /></span>
-      <span>Georgia <b>Inspection Map</b><small>Explore local health inspections</small></span>
+      <span>Georgia <b>Inspection Map</b><small>Health inspections and visitor reviews</small></span>
     </a>
     <div className="header-actions">
-      <button className="icon-button" onClick={toggleTheme} aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>{theme === 'dark' ? <Sun size={19} /> : <Moon size={19} />}</button>
-      {user ? <><span className="user-name">{user.name}</span><button ref={accountRef} onClick={() => pb.authStore.clear()}>Sign out</button></> : <button onClick={() => setAuth(!auth)}>{auth ? 'Close' : 'Sign in'}</button>}
+      <button className="icon-button" onClick={toggleTheme} aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}</button>
+      {user ? <><span className="user-name">{user.name}</span><button ref={accountRef} onClick={() => pb.authStore.clear()}>Sign out</button></> : <button ref={accountRef} className="primary" aria-expanded={auth} onClick={() => setAuth(!auth)}>Sign in</button>}
     </div>
   </header>
 }
 
-function Directory({ query, setQuery, permit, setPermit, snapshot, facilities, searchMessage, restoreId, select }: {
+const RESULT_LIMIT = 100
+
+function resultSummary(count: number, searching: boolean) {
+  if (searching) return 'Searching…'
+  if (count >= RESULT_LIMIT) return `First ${RESULT_LIMIT} facilities, refine to narrow`
+  return `${count} ${count === 1 ? 'facility' : 'facilities'}`
+}
+
+function Directory({ query, setQuery, permit, setPermit, snapshot, facilities, searchMessage, searching, restoreId, select }: {
   query: string; setQuery: (value: string) => void; permit: string; setPermit: (value: string) => void
-  snapshot: Snapshot | null; facilities: Facility[]; searchMessage: string; restoreId: string | null; select: (id: string) => void
+  snapshot: Snapshot | null; facilities: Facility[]; searchMessage: string; searching: boolean; restoreId: string | null; select: (id: string) => void
 }) {
   return <>
+    <div className="directory-head">
     <div className="search-header">
-      <h1>Find a facility</h1><p>Explore inspection records across Georgia.</p>
-      <label htmlFor="search">Search by name, address, or ID<input id="search" type="search" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search facilities" /></label>
-      <label htmlFor="permit">Permit type<select id="permit" value={permit} onChange={e => setPermit(e.target.value)}><option value="">All permit types</option>{snapshot?.permitChoices.map(p => <option key={p}>{p}</option>)}</select></label>
+      <h1>Find a facility</h1>
+      <div className="search-field">
+        <Search size={18} aria-hidden />
+        <input id="search" type="search" aria-label="Search by name, address, or ID" value={query} onChange={e => setQuery(e.target.value)} placeholder="Name, address, or permit ID" autoComplete="off" />
+      </div>
+      <select id="permit" aria-label="Permit type" value={permit} onChange={e => setPermit(e.target.value)}><option value="">All permit types</option>{snapshot?.permitChoices.map(p => <option key={p}>{p}</option>)}</select>
     </div>
-    <div className="results-heading"><strong>Facilities</strong><span>Up to 100 results</span></div>
-    {searchMessage ? <p className="empty" role="status">{searchMessage}</p> : <FacilityList facilities={facilities} restoreId={restoreId} onSelect={select} />}
+    <div className="results-heading"><span role="status">{searchMessage ? 'Search unavailable' : resultSummary(facilities.length, searching)}</span><span aria-hidden>Inspection score</span></div>
+    </div>
+    {searchMessage ? <p className="empty" role="alert">{searchMessage}</p> : searching && !facilities.length ? null : <FacilityList facilities={facilities} restoreId={restoreId} onSelect={select} />}
   </>
 }
 
@@ -104,7 +124,7 @@ export default function App() {
   const currentDetail = detailState?.id === selected ? detailState : null
   const [query, setQuery] = useState('')
   const [permit, setPermit] = useState('')
-  const { facilities, snapshot, points, mapMessage, searchMessage } = useInspectionData(query, permit)
+  const { facilities, snapshot, points, mapMessage, searchMessage, searching } = useInspectionData(query, permit)
   const [user, setUser] = useState<RecordModel | null>(pb.authStore.record)
   const [initialRecovery, setInitialRecovery] = useState(() => new URLSearchParams(location.search).get('resend') === 'verification')
   const [auth, setAuth] = useState(initialRecovery)
@@ -120,7 +140,7 @@ export default function App() {
   const mapRef = useRef<HTMLDivElement>(null)
   const accountRef = useRef<HTMLButtonElement>(null)
   const retryMapImport = () => { mapRef.current?.focus(); setLazyMapView(createMapView()); setMapAttempt(n => n + 1) }
-  const signedIn = () => { setAuth(false); requestAnimationFrame(() => accountRef.current?.focus()) }
+  const closeAuth = () => { setAuth(false); requestAnimationFrame(() => accountRef.current?.focus()) }
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const stored = localStorage.getItem('theme')
     return stored === 'light' || stored === 'dark' ? stored : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
@@ -133,6 +153,12 @@ export default function App() {
     return () => { unsubscribe(); window.removeEventListener('focus', onFocus) }
   }, [])
   useEffect(() => { if (!auth) setInitialRecovery(false) }, [auth])
+  useEffect(() => {
+    if (!auth) return
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') closeAuth() }
+    addEventListener('keydown', onKey)
+    return () => removeEventListener('keydown', onKey)
+  }, [auth])
   useEffect(() => { document.documentElement.classList.toggle('dark', theme === 'dark'); document.documentElement.style.colorScheme = theme }, [theme])
   useEffect(() => {
     const handler = () => {
@@ -164,12 +190,12 @@ export default function App() {
 
   return <>
     <Header theme={theme} toggleTheme={toggleTheme} user={user} auth={auth} setAuth={setAuth} home={() => select(null)} accountRef={accountRef} />
-    {auth && <AuthPanel initialRecovery={initialRecovery} onClose={() => setAuth(false)} onSignedIn={signedIn} />}
+    {auth && <AuthPanel initialRecovery={initialRecovery} onClose={closeAuth} onSignedIn={closeAuth} />}
     <main className="workspace">
-      <div className="mobile-switch"><button aria-pressed={!mobileMap} onClick={() => setMobileMap(false)}>List</button><button aria-pressed={mobileMap} onClick={() => setMobileMap(true)}>Map</button></div>
+      <div className="mobile-switch" role="group" aria-label="View"><button aria-pressed={!mobileMap} onClick={() => setMobileMap(false)}>List</button><button aria-pressed={mobileMap} onClick={() => setMobileMap(true)}>Map</button></div>
       <aside className={`sidebar ${mobileMap ? 'mobile-hidden' : ''}`}>
-        {selected ? <FacilityDetail key={selected} id={selected} onClose={() => select(null)} user={user} detail={currentDetail?.detail ?? null} error={currentDetail?.error ?? ''} load={loadDetail} /> :
-          <Directory query={query} setQuery={setQuery} permit={permit} setPermit={setPermit} snapshot={snapshot} facilities={facilities} searchMessage={searchMessage} restoreId={restoreId} select={select} />}
+        {selected ? <FacilityDetail key={selected} id={selected} onClose={() => select(null)} user={user} detail={currentDetail?.detail ?? null} error={currentDetail?.error ?? ''} load={loadDetail} onSignIn={() => setAuth(true)} /> :
+          <Directory query={query} setQuery={setQuery} permit={permit} setPermit={setPermit} snapshot={snapshot} facilities={facilities} searchMessage={searchMessage} searching={searching} restoreId={restoreId} select={select} />}
       </aside>
       <div ref={mapRef} tabIndex={-1} className={`map-panel ${mobileMap ? '' : 'mobile-hidden'}`}>
         {mapMessage && <p className="map-message" role="status">{mapMessage}</p>}

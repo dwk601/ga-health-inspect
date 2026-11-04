@@ -63,6 +63,7 @@ function SelectedLocation({ selected, point }: { selected: string | null; point:
   return null
 }
 
+const clusterColors: [string, string, string] = ['#3386bd', '#226693', '#164d78']
 const key = import.meta.env.VITE_CARTO_KEY as string | undefined
 function transformRequest(url: string) {
   if (key) {
@@ -92,7 +93,7 @@ export function MapView({ points, selected, onSelect, theme, detail, detailError
   return <section ref={mapRegion} className="map-area" aria-label="Facility map" tabIndex={-1}><MapErrorBoundary key={attempt} onRetry={retry}>{failed ? <MapFailure onRetry={retry} /> : <Map bounds={georgiaBounds} fitBoundsOptions={{ padding: 20 }} theme={theme} transformRequest={transformRequest}>
     <MapLoadMonitor onLoaded={onLoaded} onFailure={onFailure} />
     <FitGeorgia selected={selected} />
-    <MapClusterLayer data={data} onPointClick={feature => onSelect(feature.properties.id)} />
+    <MapClusterLayer data={data} clusterColors={clusterColors} pointColor={theme === 'dark' ? '#7cc3ee' : '#164d78'} onPointClick={feature => onSelect(feature.properties.id)} />
     <SelectedLocation selected={selected} point={point} />
     <MapControls position="bottom-right" showZoom />
     {point && <MapPopup longitude={point.coordinates[0]} latitude={point.coordinates[1]} onClose={() => onSelect(null)} closeButton closeOnClick={false} focusAfterOpen={false}><div className="map-popup">{detail ? <><strong>{detail.name || 'Unnamed facility'}</strong><p>Inspection score: {detail.lastInspectionScore ?? 'Not available'}</p></> : <p>{detailError ? 'Facility details unavailable.' : 'Loading facility…'}</p>}</div></MapPopup>}
