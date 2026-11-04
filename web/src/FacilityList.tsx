@@ -7,7 +7,7 @@ export function FacilityList({ facilities, restoreId, onRestored, onSelect, dist
   const restoreRow = useRef<HTMLButtonElement>(null)
   useLayoutEffect(() => {
     if (restoreId) {
-      restoreRow.current?.focus()
+      (restoreRow.current ?? document.querySelector<HTMLInputElement>('#search'))?.focus()
       onRestored()
     }
   }, [restoreId, onRestored])
