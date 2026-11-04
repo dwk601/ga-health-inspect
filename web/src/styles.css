@@ -168,6 +168,11 @@ p {
   font-weight: 500;
   white-space: nowrap;
 }
+.brand > span:not(.brand-icon) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .brand b {
   font-weight: 750;
 }
@@ -190,6 +195,7 @@ p {
 }
 .header-actions {
   display: flex;
+  flex: none;
   gap: 0.6rem;
   align-items: center;
   font-size: 0.875rem;
@@ -436,7 +442,7 @@ textarea {
   background: var(--card);
   box-shadow: var(--shadow);
 }
-.nearby-map-status { position: absolute; z-index: 2; left: 1rem; bottom: 1rem; width: min(19rem, calc(100% - 2rem)); max-height: 40%; overflow: auto; font-size: .875rem; }
+.nearby-map-status { position: absolute; z-index: 2; left: 1rem; bottom: 3.5rem; width: min(19rem, calc(100% - 5rem)); max-height: 40%; overflow: auto; font-size: .875rem; }
 .nearby-map-status p { margin: 0; }
 .nearby-map-status button { min-height: 44px; margin: .5rem .5rem 0 0; padding: .5rem .75rem; border: 1px solid var(--border); border-radius: 7px; background: var(--card); color: var(--foreground); font-weight: 600; }
 .map-near { position: absolute; z-index: 2; top: 1rem; right: 1rem; display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-height: 44px; padding: .6rem .9rem; border: 1px solid var(--border); border-radius: 9px; background: var(--card); color: var(--foreground); box-shadow: var(--shadow); font-weight: 650; }

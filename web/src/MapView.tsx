@@ -28,7 +28,7 @@ function MapLoadMonitor({ onLoaded, onFailure }: { onLoaded: () => void; onFailu
 
 const georgiaBounds: [[number, number], [number, number]] = [[-85.61, 30.36], [-80.84, 35.0]]
 
-function FitView({ selected, nearby, origin, fitPoints, ready, showMapStatus }: { selected: string | null; nearby: boolean; origin: Origin | null; fitPoints: Point[]; ready: boolean; showMapStatus: boolean }) {
+function FitView({ selected, nearby, origin, fitPoints, ready, reserveStatusSpace }: { selected: string | null; nearby: boolean; origin: Origin | null; fitPoints: Point[]; ready: boolean; reserveStatusSpace: boolean }) {
   const { map, isLoaded } = useMap()
   const fitted = useRef('')
   useEffect(() => {
@@ -45,13 +45,13 @@ function FitView({ selected, nearby, origin, fitPoints, ready, showMapStatus }: 
       else {
         const coordinates = [origin.coordinates, ...fitPoints.map(p => p.coordinates)]
         const lons = coordinates.map(c => c[0]); const lats = coordinates.map(c => c[1])
-        map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: { top: 60, right: 60, bottom: showMapStatus ? Math.max(60, container.clientHeight * .4 + 16) : 60, left: 60 }, maxZoom: 13, duration: 0 })
+        map.fitBounds([[Math.min(...lons), Math.min(...lats)], [Math.max(...lons), Math.max(...lats)]], { padding: { top: 60, right: 60, bottom: reserveStatusSpace ? Math.max(60, container.clientHeight * .4 + 56) : 60, left: 60 }, maxZoom: 13, duration: 0 })
       }
     }
     const observer = new ResizeObserver(fit)
     observer.observe(map.getContainer()); fit()
     return () => observer.disconnect()
-  }, [map, isLoaded, selected, nearby, origin, fitPoints, ready, showMapStatus])
+  }, [map, isLoaded, selected, nearby, origin, fitPoints, ready, reserveStatusSpace])
   return null
 }
 
@@ -82,7 +82,7 @@ function transformRequest(url: string) {
   }
   return { url }
 }
-export function MapView({ points, facilities, fitPoints, ready, origin, nearby, selected, onSelect, theme, detail, detailError, showMapStatus }: { points: Point[]; facilities: Facility[]; fitPoints: Point[]; ready: boolean; origin: Origin | null; nearby: boolean; selected: string | null; onSelect: (id: string | null) => void; theme: 'light' | 'dark'; detail: Facility | null; detailError: boolean; showMapStatus: boolean }) {
+export function MapView({ points, facilities, fitPoints, ready, origin, nearby, selected, onSelect, theme, detail, detailError, reserveStatusSpace }: { points: Point[]; facilities: Facility[]; fitPoints: Point[]; ready: boolean; origin: Origin | null; nearby: boolean; selected: string | null; onSelect: (id: string | null) => void; theme: 'light' | 'dark'; detail: Facility | null; detailError: boolean; reserveStatusSpace: boolean }) {
   const data = useMemo<GeoJSON.FeatureCollection<GeoJSON.Point, { id: string }>>(() => ({ type: 'FeatureCollection', features: points.map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: p.coordinates }, properties: { id: p.id } })) }), [points])
   const point = points.find(p => p.id === selected)
   const names = useMemo(() => new globalThis.Map(facilities.map(f => [f.id, f.name || 'Unnamed facility'])), [facilities])
@@ -100,7 +100,7 @@ export function MapView({ points, facilities, fitPoints, ready, origin, nearby, 
   }, [loaded, attempt])
   return <section ref={mapRegion} className="map-area" aria-label="Facility map" tabIndex={-1}><MapErrorBoundary key={attempt} onRetry={retry}>{failed ? <MapFailure onRetry={retry} /> : <Map bounds={georgiaBounds} fitBoundsOptions={{ padding: 20 }} theme={theme} transformRequest={transformRequest}>
     <MapLoadMonitor onLoaded={onLoaded} onFailure={onFailure} />
-    <FitView selected={selected} nearby={nearby} origin={origin} fitPoints={fitPoints} ready={ready} showMapStatus={showMapStatus} />
+    <FitView selected={selected} nearby={nearby} origin={origin} fitPoints={fitPoints} ready={ready} reserveStatusSpace={reserveStatusSpace} />
     {nearby ? <>{points.map(p => <MapMarker key={p.id} longitude={p.coordinates[0]} latitude={p.coordinates[1]}><MarkerContent><button className={`nearby-marker ${p.id === selected ? 'selected' : ''}`} aria-label={`View ${names.get(p.id) ?? (p.id === selected ? detail?.name : null) ?? 'unnamed facility'}`} onClick={() => onSelect(p.id)} /></MarkerContent></MapMarker>)}{origin && <MapMarker longitude={origin.coordinates[0]} latitude={origin.coordinates[1]}><MarkerContent><span className="origin-marker" aria-label="Your location"><span aria-hidden="true">◆</span> You</span></MarkerContent></MapMarker>}</> : <MapClusterLayer data={data} clusterColors={clusterColors} pointColor={theme === 'dark' ? '#7cc3ee' : '#164d78'} onPointClick={feature => onSelect(feature.properties.id)} />}
     <SelectedLocation selected={selected} point={point} />
     <MapControls position="bottom-right" showZoom />

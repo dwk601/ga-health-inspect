@@ -217,6 +217,7 @@ export default function App() {
   }, [])
   const mapSurface = !!selected || (isMobile && mobileMap)
   const showMapStatus = nearby.active && mapSurface && (nearby.locating || !!nearby.error || !snapshot || nearby.loading || !!nearby.lookupError || !nearby.candidates.length || !!nearby.missing || (nearby.origin?.accuracy ?? 0) > 1000)
+  const reserveStatusSpace = showMapStatus && !nearby.locating && !nearby.loading && (!!nearby.error || (!snapshot && !pointsLoading) || !!nearby.lookupError || !nearby.candidates.length || !!nearby.missing || (nearby.origin?.accuracy ?? 0) > 1000)
   const [mapAttempt, setMapAttempt] = useState(0)
   const [LazyMapView, setLazyMapView] = useState(createMapView)
   const mapRef = useRef<HTMLDivElement>(null)
@@ -292,7 +293,7 @@ export default function App() {
           <button onClick={() => { mapNearRef.current?.focus(); nearby.exit() }}>All Georgia</button>
         </div>}
         <button ref={mapNearRef} className="map-near" onClick={nearby.locating ? nearby.exit : startNearby}><LocateFixed size={17} aria-hidden /> {nearby.locating ? 'Cancel locating' : 'Near me'}</button>
-        <MapImportBoundary key={mapAttempt} onRetry={retryMapImport}><Suspense fallback={<div className="map-failure">Loading map…</div>}><LazyMapView points={mapPoints} facilities={nearby.facilities} fitPoints={fitPoints} showMapStatus={showMapStatus} ready={!!snapshot} origin={nearby.origin} nearby={nearby.active} selected={selected} onSelect={select} theme={theme} detail={currentDetail?.detail?.facility ?? null} detailError={!!currentDetail?.error} /></Suspense></MapImportBoundary>
+        <MapImportBoundary key={mapAttempt} onRetry={retryMapImport}><Suspense fallback={<div className="map-failure">Loading map…</div>}><LazyMapView points={mapPoints} facilities={nearby.facilities} fitPoints={fitPoints} reserveStatusSpace={reserveStatusSpace} ready={!!snapshot} origin={nearby.origin} nearby={nearby.active} selected={selected} onSelect={select} theme={theme} detail={currentDetail?.detail?.facility ?? null} detailError={!!currentDetail?.error} /></Suspense></MapImportBoundary>
       </div>
       <div className="mobile-switch" role="group" aria-label="View"><button aria-pressed={!mobileMap} onClick={() => setMobileMap(false)}>List</button><button aria-pressed={mobileMap} onClick={() => setMobileMap(true)}>Map</button></div>
     </main>
