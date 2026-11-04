@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { ClientResponseError } from 'pocketbase'
 import { pb, errorMessage, refreshAuth } from './api'
 
-export function AuthPanel({ onClose, initialRecovery = false }: { onClose: () => void; initialRecovery?: boolean }) {
+export function AuthPanel({ onClose, onSignedIn, initialRecovery = false }: { onClose: () => void; onSignedIn: () => void; initialRecovery?: boolean }) {
   const [signup, setSignup] = useState(false)
   const [recovery, setRecovery] = useState<'reset' | 'verify' | null>(initialRecovery ? 'verify' : null)
   const [message, setMessage] = useState('')
@@ -32,7 +32,7 @@ export function AuthPanel({ onClose, initialRecovery = false }: { onClose: () =>
         await pb.collection('users').authWithPassword(email, password)
         await refreshAuth()
         if (!pb.authStore.isValid) throw new Error('Session refresh failed')
-        onClose()
+        onSignedIn()
       }
     } catch (error) { setMessage(errorMessage(error, recovery === 'reset' ? 'request a password reset' : recovery === 'verify' ? 'resend verification' : signup ? 'create your account or send verification' : 'sign in')) } finally { setBusy(false) }
   }

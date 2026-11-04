@@ -4,11 +4,28 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"sync"
 
 	"ganigeorgiev.com/pocketbase/pocketbase/core"
 )
 
 func configureSettings(app core.App) error {
+	stored, err := app.Settings().Clone()
+	if err != nil {
+		return err
+	}
+	var settingsMu sync.Mutex
+	app.OnSettingsUpdateRequest().BindFunc(func(e *core.SettingsUpdateRequestEvent) error {
+		settingsMu.Lock()
+		defer settingsMu.Unlock()
+		copyManagedSettings(e.NewSettings, stored)
+		err := e.Next()
+		if err == nil {
+			stored, err = e.NewSettings.Clone()
+		}
+		copyManagedSettings(e.App.Settings(), e.OldSettings)
+		return err
+	})
 	s := app.Settings()
 	s.Meta.AppName = os.Getenv("APP_NAME")
 	if s.Meta.AppName == "" {
@@ -71,4 +88,34 @@ func configureSettings(app core.App) error {
 	users.VerificationTemplate.Body = verification
 	users.ResetPasswordTemplate.Body = reset
 	return app.Save(users)
+}
+
+// copyManagedSettings replaces only values supplied by the environment or enforced at startup.
+func copyManagedSettings(dst, src *core.Settings) {
+	if os.Getenv("APP_URL") != "" {
+		dst.Meta.AppURL = src.Meta.AppURL
+	}
+	if os.Getenv("SMTP_SENDER_ADDRESS") != "" {
+		dst.Meta.SenderAddress = src.Meta.SenderAddress
+	}
+	if os.Getenv("SMTP_SENDER_NAME") != "" {
+		dst.Meta.SenderName = src.Meta.SenderName
+	}
+	if os.Getenv("SMTP_HOST") != "" {
+		dst.SMTP = src.SMTP
+	}
+	dst.RateLimits.Enabled = src.RateLimits.Enabled
+	managed := func(label string) bool { return label == "*:requestVerification" || label == "*:requestPasswordReset" }
+	rules := make([]core.RateLimitRule, 0, len(dst.RateLimits.Rules)+2)
+	for _, rule := range dst.RateLimits.Rules {
+		if !managed(rule.Label) {
+			rules = append(rules, rule)
+		}
+	}
+	for _, rule := range src.RateLimits.Rules {
+		if managed(rule.Label) {
+			rules = append(rules, rule)
+		}
+	}
+	dst.RateLimits.Rules = rules
 }

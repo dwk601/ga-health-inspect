@@ -18,7 +18,7 @@ export function CommunityPanel({ facilityId, user, refresh }: { facilityId: stri
     e.preventDefault(); const form = e.currentTarget; const data = new FormData(form)
     const own = ratings.find(r => r.owner === user?.id)
     const body = String(data.get('body') ?? '').trim()
-    if (kind === 'comments' && !/[\p{L}\p{M}\p{N}\p{P}\p{S}]/u.test(body)) { setMessage("Comment can't be blank."); return }
+    if (kind === 'comments' && !/[^\s\p{Z}\p{C}\u{034F}\u{115F}\u{1160}\u{17B4}\u{17B5}\u{180B}-\u{180F}\u{2800}\u{3164}\u{FE00}-\u{FE0F}\u{FFA0}\u{E0100}-\u{E01EF}]/u.test(body)) { setMessage("Comment can't be blank."); return }
     try {
       if (kind === 'ratings' && own) await pb.collection(kind).update(own.id, { rating: Number(data.get('rating')) })
       else await pb.collection(kind).create({ owner: user?.id, facility_id: facilityId, ...(kind === 'ratings' ? { rating: Number(data.get('rating')) } : { body }) })
@@ -37,7 +37,7 @@ export function CommunityPanel({ facilityId, user, refresh }: { facilityId: stri
     if (input === null) return
     const body = input.trim()
     if (body === item.body) return
-    if (!/[\p{L}\p{M}\p{N}\p{P}\p{S}]/u.test(body)) { setMessage("Comment can't be blank."); return }
+    if (!/[^\s\p{Z}\p{C}\u{034F}\u{115F}\u{1160}\u{17B4}\u{17B5}\u{180B}-\u{180F}\u{2800}\u{3164}\u{FE00}-\u{FE0F}\u{FFA0}\u{E0100}-\u{E01EF}]/u.test(body)) { setMessage("Comment can't be blank."); return }
     if (body.length > 2000) { setMessage('Comments must contain 1–2000 characters.'); return }
     try { await pb.collection('comments').update(item.id, { body }); setMessage('Comment updated.'); updated() } catch (e) { setMessage(errorMessage(e, 'update your comment', true, true)) }
   }

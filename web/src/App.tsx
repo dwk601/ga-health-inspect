@@ -1,4 +1,4 @@
-import { Component, Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Component, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import type { RecordModel } from 'pocketbase'
 import { MapPinned, Moon, Sun } from 'lucide-react'
@@ -57,9 +57,9 @@ function useInspectionData(query: string, permit: string) {
   return { facilities, snapshot, points, mapMessage, searchMessage }
 }
 
-function Header({ theme, toggleTheme, user, auth, setAuth, home }: {
+function Header({ theme, toggleTheme, user, auth, setAuth, home, accountRef }: {
   theme: 'light' | 'dark'; toggleTheme: () => void; user: RecordModel | null
-  auth: boolean; setAuth: (value: boolean) => void; home: () => void
+  auth: boolean; setAuth: (value: boolean) => void; home: () => void; accountRef: React.RefObject<HTMLButtonElement | null>
 }) {
   return <header className="topbar">
     <a href="/" className="brand" onClick={e => { e.preventDefault(); home() }}>
@@ -68,7 +68,7 @@ function Header({ theme, toggleTheme, user, auth, setAuth, home }: {
     </a>
     <div className="header-actions">
       <button className="icon-button" onClick={toggleTheme} aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>{theme === 'dark' ? <Sun size={19} /> : <Moon size={19} />}</button>
-      {user ? <><span className="user-name">{user.name}</span><button onClick={() => pb.authStore.clear()}>Sign out</button></> : <button onClick={() => setAuth(!auth)}>{auth ? 'Close' : 'Sign in'}</button>}
+      {user ? <><span className="user-name">{user.name}</span><button ref={accountRef} onClick={() => pb.authStore.clear()}>Sign out</button></> : <button onClick={() => setAuth(!auth)}>{auth ? 'Close' : 'Sign in'}</button>}
     </div>
   </header>
 }
@@ -117,7 +117,10 @@ export default function App() {
   const [mobileMap, setMobileMap] = useState(false)
   const [mapAttempt, setMapAttempt] = useState(0)
   const [LazyMapView, setLazyMapView] = useState(createMapView)
-  const retryMapImport = () => { setLazyMapView(createMapView()); setMapAttempt(n => n + 1) }
+  const mapRef = useRef<HTMLDivElement>(null)
+  const accountRef = useRef<HTMLButtonElement>(null)
+  const retryMapImport = () => { mapRef.current?.focus(); setLazyMapView(createMapView()); setMapAttempt(n => n + 1) }
+  const signedIn = () => { setAuth(false); requestAnimationFrame(() => accountRef.current?.focus()) }
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const stored = localStorage.getItem('theme')
     return stored === 'light' || stored === 'dark' ? stored : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
@@ -160,15 +163,15 @@ export default function App() {
   if (accountRoute) return <AccountLink key={path} kind={accountRoute[1] as 'verify' | 'reset-password'} token={accountRoute[2]} />
 
   return <>
-    <Header theme={theme} toggleTheme={toggleTheme} user={user} auth={auth} setAuth={setAuth} home={() => select(null)} />
-    {auth && <AuthPanel initialRecovery={initialRecovery} onClose={() => setAuth(false)} />}
+    <Header theme={theme} toggleTheme={toggleTheme} user={user} auth={auth} setAuth={setAuth} home={() => select(null)} accountRef={accountRef} />
+    {auth && <AuthPanel initialRecovery={initialRecovery} onClose={() => setAuth(false)} onSignedIn={signedIn} />}
     <main className="workspace">
       <div className="mobile-switch"><button aria-pressed={!mobileMap} onClick={() => setMobileMap(false)}>List</button><button aria-pressed={mobileMap} onClick={() => setMobileMap(true)}>Map</button></div>
       <aside className={`sidebar ${mobileMap ? 'mobile-hidden' : ''}`}>
         {selected ? <FacilityDetail key={selected} id={selected} onClose={() => select(null)} user={user} detail={currentDetail?.detail ?? null} error={currentDetail?.error ?? ''} load={loadDetail} /> :
           <Directory query={query} setQuery={setQuery} permit={permit} setPermit={setPermit} snapshot={snapshot} facilities={facilities} searchMessage={searchMessage} restoreId={restoreId} select={select} />}
       </aside>
-      <div className={`map-panel ${mobileMap ? '' : 'mobile-hidden'}`}>
+      <div ref={mapRef} tabIndex={-1} className={`map-panel ${mobileMap ? '' : 'mobile-hidden'}`}>
         {mapMessage && <p className="map-message" role="status">{mapMessage}</p>}
         <MapImportBoundary key={mapAttempt} onRetry={retryMapImport}><Suspense fallback={<div className="map-failure">Loading map…</div>}><LazyMapView points={points} selected={selected} onSelect={select} theme={theme} detail={currentDetail?.detail?.facility ?? null} detailError={!!currentDetail?.error} /></Suspense></MapImportBoundary>
       </div>

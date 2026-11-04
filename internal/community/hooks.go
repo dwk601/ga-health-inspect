@@ -15,20 +15,36 @@ import (
 func Register(app core.App) {
 	var mu sync.Mutex
 	recent := make(map[string]time.Time)
+	type entry struct {
+		key string
+		at  time.Time
+	}
+	queue := make([]entry, 0, 10000)
+	head := 0
 	allowEmail := func(kind, email string) bool {
 		mu.Lock()
 		defer mu.Unlock()
 		now := time.Now()
-		for key, at := range recent {
-			if now.Sub(at) >= time.Minute {
-				delete(recent, key)
-			}
+		for head < len(queue) && now.Sub(queue[head].at) >= time.Minute {
+			delete(recent, queue[head].key)
+			queue[head] = entry{}
+			head++
 		}
 		key := kind + ":" + strings.ToLower(strings.TrimSpace(email))
-		if _, exists := recent[key]; exists || len(recent) >= 10000 {
+		if _, exists := recent[key]; exists {
 			return false
 		}
+		if len(recent) >= 10000 {
+			delete(recent, queue[head].key)
+			queue[head] = entry{}
+			head++
+		}
+		if head >= 10000 {
+			queue = append(queue[:0], queue[head:]...)
+			head = 0
+		}
 		recent[key] = now
+		queue = append(queue, entry{key, now})
 		return true
 	}
 	app.OnRecordRequestVerificationRequest("users").BindFunc(func(e *core.RecordRequestVerificationRequestEvent) error {

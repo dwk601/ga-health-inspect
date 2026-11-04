@@ -581,8 +581,11 @@ func TestCommunityPermissions(t *testing.T) {
 		t.Fatalf("private owner expansion: %v", expanded)
 	}
 	request("GET", users+"/"+owner.Id, "", nil, 404)
-	for _, body := range []string{" \t\n ", "\v", "\ufeff", "\u200b"} {
+	for _, body := range []string{" \t\n ", "\v", "\ufeff", "\u200b", "\u3164", "\u2800", "\ufe0f"} {
 		request("PATCH", comments+"/"+cid, ownerToken, map[string]any{"body": body}, 400)
+	}
+	for _, body := range []string{"👩‍🍳", "1️⃣", "中文", "العربية", "देवनागरी", "a\u0301"} {
+		request("PATCH", comments+"/"+cid, ownerToken, map[string]any{"body": body}, 200)
 	}
 	request("PATCH", comments+"/"+cid, ownerToken, map[string]any{"body": strings.Repeat("x", 2001)}, 400)
 	request("PATCH", comments+"/"+cid, otherToken, map[string]any{"body": "hacked"}, 404)
