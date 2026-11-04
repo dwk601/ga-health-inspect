@@ -38,6 +38,7 @@ export function getDetail(id: string) { return get<Detail>(`/api/inspect/facilit
 export function errorMessage(error: unknown, action: string, restrictedRecord = false, contributionWrite = false): string {
   if (typeof error === 'object' && error && 'status' in error) {
     const status = error.status
+    if (status === 429) return 'Too many requests. Please wait a moment and try again.'
     if (status === 503 && contributionWrite) return 'Inspection data is temporarily unavailable; posting is paused.'
     if (status === 403) return `Could not ${action}. Check your permissions and email verification.`
     if (status === 404) return restrictedRecord ? `Could not ${action}: not allowed or no longer exists.` : `Could not ${action}. The service or record is unavailable.`

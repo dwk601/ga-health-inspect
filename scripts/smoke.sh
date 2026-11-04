@@ -8,7 +8,7 @@ override=$tmpdir/compose.yaml
 export DATABASE_URL='postgres://ga_inspect_reader:scratch-reader-only@postgres:5432/health_scratch?sslmode=disable'
 export REDIS_PASSWORD='smoke-redis-only'
 export APP_URL='http://app:8090' APP_NAME='Smoke' APP_ENV=smoke
-export SMTP_HOST='' SMTP_PORT='' SMTP_USERNAME='' SMTP_PASSWORD='' SMTP_TLS=false SMTP_SENDER_NAME='' SMTP_SENDER_ADDRESS=''
+export SMTP_HOST='localhost' SMTP_PORT='' SMTP_USERNAME='' SMTP_PASSWORD='' SMTP_TLS=false SMTP_SENDER_NAME='' SMTP_SENDER_ADDRESS='smoke@example.test'
 export PB_ENCRYPTION_KEY='0123456789abcdef0123456789abcdef'
 compose=(docker compose -p "$project" -f docker-compose.yaml -f "$override")
 cleanup() {

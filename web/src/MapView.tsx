@@ -1,4 +1,4 @@
-import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Component, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Map, MapClusterLayer, MapControls, MapPopup, useMap } from '@/components/ui/map'
 import type { ErrorEvent as MapErrorEvent } from 'maplibre-gl'
 import type { Facility, Point } from './types'
@@ -84,6 +84,8 @@ export function MapView({ points, selected, onSelect, theme, detail, detailError
   const [loaded, setLoaded] = useState(false)
   const [attempt, setAttempt] = useState(0)
   const mapRegion = useRef<HTMLElement>(null)
+  const onLoaded = useCallback(() => setLoaded(true), [])
+  const onFailure = useCallback(() => setFailed(true), [])
   const retry = () => { mapRegion.current?.focus(); setLoaded(false); setFailed(false); setAttempt(value => value + 1) }
   useEffect(() => {
     if (loaded) return
@@ -91,7 +93,7 @@ export function MapView({ points, selected, onSelect, theme, detail, detailError
     return () => window.clearTimeout(timer)
   }, [loaded, attempt])
   return <section ref={mapRegion} className="map-area" aria-label="Facility map" tabIndex={-1}><MapErrorBoundary key={attempt} onRetry={retry}>{failed ? <MapFailure onRetry={retry} /> : <Map bounds={georgiaBounds} fitBoundsOptions={{ padding: 20 }} theme={theme} transformRequest={transformRequest}>
-    <MapLoadMonitor onLoaded={() => setLoaded(true)} onFailure={() => setFailed(true)} />
+    <MapLoadMonitor onLoaded={onLoaded} onFailure={onFailure} />
     <FitGeorgia selected={selected} />
     <MapClusterLayer data={data} onPointClick={feature => onSelect(feature.properties.id)} />
     <SelectedLocation selected={selected} point={point} />

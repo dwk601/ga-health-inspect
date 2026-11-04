@@ -48,6 +48,7 @@ export function AccountLink({ kind, token }: { kind: 'verify' | 'reset-password'
       <button className="primary" disabled={busy}>Reset password</button>
     </form>}
     <p role="status">{message}</p>
+    {kind === 'verify' && !busy && !success && <p><a href="/?resend=verification">Resend verification email</a></p>}
     <a href="/">Back to map</a>
   </main>
 }

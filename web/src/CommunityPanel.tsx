@@ -17,9 +17,11 @@ export function CommunityPanel({ facilityId, user, refresh }: { facilityId: stri
   async function submit(e: FormEvent<HTMLFormElement>, kind: 'ratings' | 'comments') {
     e.preventDefault(); const form = e.currentTarget; const data = new FormData(form)
     const own = ratings.find(r => r.owner === user?.id)
+    const body = String(data.get('body') ?? '').trim()
+    if (kind === 'comments' && !body) { setMessage('Comments must contain 1–2000 characters.'); return }
     try {
       if (kind === 'ratings' && own) await pb.collection(kind).update(own.id, { rating: Number(data.get('rating')) })
-      else await pb.collection(kind).create({ owner: user?.id, facility_id: facilityId, ...(kind === 'ratings' ? { rating: Number(data.get('rating')) } : { body: data.get('body') }) })
+      else await pb.collection(kind).create({ owner: user?.id, facility_id: facilityId, ...(kind === 'ratings' ? { rating: Number(data.get('rating')) } : { body }) })
       form.reset(); setMessage('Saved.'); updated()
     } catch (error) { setMessage(errorMessage(error, kind === 'ratings' ? 'save your rating' : 'post your comment', kind === 'ratings' && !!own, true)); void refreshAuth() }
   }
@@ -31,10 +33,17 @@ export function CommunityPanel({ facilityId, user, refresh }: { facilityId: stri
     }
   }
   async function editComment(item: Item) {
-    const body = window.prompt('Edit your comment:', item.body || '')
-    if (body === null || body === item.body) return
-    if (!body.trim() || body.length > 2000) { setMessage('Comments must contain 1–2000 characters.'); return }
+    const input = window.prompt('Edit your comment:', item.body || '')
+    if (input === null) return
+    const body = input.trim()
+    if (body === item.body) return
+    if (!body || body.length > 2000) { setMessage('Comments must contain 1–2000 characters.'); return }
     try { await pb.collection('comments').update(item.id, { body }); setMessage('Comment updated.'); updated() } catch (e) { setMessage(errorMessage(e, 'update your comment', true, true)) }
+  }
+  async function resendVerification() {
+    if (!user?.email) return
+    try { await pb.collection('users').requestVerification(user.email); setMessage('If the address is eligible, an email will be sent shortly.') }
+    catch (error) { setMessage(errorMessage(error, 'send verification')) }
   }
   async function role(e: FormEvent<HTMLFormElement>) {
     e.preventDefault(); const data = new FormData(e.currentTarget)
@@ -44,7 +53,7 @@ export function CommunityPanel({ facilityId, user, refresh }: { facilityId: stri
   const ownRating = ratings.find(r => r.owner === user?.id)?.rating
   return <section className="community"><h3>Visitor experience · 1–5</h3><p>Visitor ratings reflect personal experiences. They are not a safety score.</p>
     {user?.verified ? <><form onSubmit={e => submit(e, 'ratings')} className="compact-form"><label htmlFor="rating">Your rating<select key={`${user.id}-${ownRating ?? 'new'}`} id="rating" name="rating" defaultValue={ownRating ?? 5}>{[1,2,3,4,5].map(n => <option key={n} value={n}>{n}</option>)}</select></label><button className="primary">Save rating</button></form>
-      <form onSubmit={e => submit(e, 'comments')}><label htmlFor="comment">Your comment<textarea id="comment" name="body" maxLength={2000} required rows={3} /></label><button className="primary">Post comment</button></form></> : <p>{user ? 'Verify your email to post a rating or comment.' : 'Sign in and verify your email to contribute.'}</p>}
+      <form onSubmit={e => submit(e, 'comments')}><label htmlFor="comment">Your comment<textarea id="comment" name="body" maxLength={2000} required rows={3} /></label><button className="primary">Post comment</button></form></> : <p>{user ? <>Verify your email to post a rating or comment. <button className="text-button" onClick={resendVerification}>Resend verification email</button></> : 'Sign in and verify your email to contribute.'}</p>}
     <p role="status">{message || loadError}</p>
     <h4>Ratings</h4>{loaded && ratings.length === 0 && <p>No ratings yet.</p>}<ul className="contributions">{ratings.map(item => <li key={item.id}><strong>{item.authorName}</strong> · {item.rating}/5 {canRemove(item) && <button className="text-button" onClick={() => remove('ratings', item)}>Remove rating</button>}{user?.role === 'admin' && <small>User ID: {item.owner}</small>}</li>)}</ul>
     <h4>Comments</h4>{loaded && comments.length === 0 && <p>No comments yet.</p>}<ul className="contributions">{comments.map(item => <li key={item.id}><strong>{item.authorName}</strong><p className="comment-body">{item.body}</p>{user?.id === item.owner && <button className="text-button" onClick={() => editComment(item)}>Edit comment</button>} {' '}{canRemove(item) && <button className="text-button" onClick={() => remove('comments', item)}>Remove comment</button>}{user?.role === 'admin' && <small>User ID: {item.owner}</small>}</li>)}</ul>

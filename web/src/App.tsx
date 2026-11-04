@@ -92,7 +92,7 @@ export default function App() {
   const [permit, setPermit] = useState('')
   const { facilities, snapshot, points, mapMessage, searchMessage } = useInspectionData(query, permit)
   const [user, setUser] = useState<RecordModel | null>(pb.authStore.record)
-  const [auth, setAuth] = useState(false)
+  const [auth, setAuth] = useState(() => new URLSearchParams(location.search).get('resend') === 'verification')
   const [mobileMap, setMobileMap] = useState(false)
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const stored = localStorage.getItem('theme')
@@ -136,7 +136,7 @@ export default function App() {
 
   return <>
     <Header theme={theme} toggleTheme={toggleTheme} user={user} auth={auth} setAuth={setAuth} home={() => select(null)} />
-    {auth && <AuthPanel onClose={() => setAuth(false)} />}
+    {auth && <AuthPanel initialRecovery={new URLSearchParams(location.search).get('resend') === 'verification'} onClose={() => setAuth(false)} />}
     <main className="workspace">
       <div className="mobile-switch"><button aria-pressed={!mobileMap} onClick={() => setMobileMap(false)}>List</button><button aria-pressed={mobileMap} onClick={() => setMobileMap(true)}>Map</button></div>
       <aside className={`sidebar ${mobileMap ? 'mobile-hidden' : ''}`}>

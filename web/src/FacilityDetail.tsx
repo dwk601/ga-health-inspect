@@ -62,14 +62,12 @@ export function FacilityDetail({
             <div>
               <span>Visitor experience · 1–5</span>
               <strong>
-                {detail.community?.ratingAverage != null
+                {detail.community.ratingAverage != null
                   ? detail.community.ratingAverage.toFixed(1)
                   : '—'}
               </strong>
               <small>
-                {detail.community
-                  ? `${detail.community.ratingCount} ${detail.community.ratingCount === 1 ? 'rating' : 'ratings'}`
-                  : 'Ratings unavailable'}
+                {`${detail.community.ratingCount} ${detail.community.ratingCount === 1 ? 'rating' : 'ratings'}`}
               </small>
             </div>
           </div>
