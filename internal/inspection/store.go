@@ -101,6 +101,35 @@ func (s *store) search(ctx context.Context, query, permit string) ([]facility, e
 	return result, rows.Err()
 }
 
+func (s *store) lookup(ctx context.Context, ids []string) ([]facility, error) {
+	if s.pool == nil {
+		return nil, errors.New("source unavailable")
+	}
+	rows, err := s.pool.Query(ctx, `SELECT `+facilityFields+` FROM public.facilities WHERE source_id = ANY($1)`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	found := make(map[string]facility, len(ids))
+	for rows.Next() {
+		f, err := scanFacility(rows)
+		if err != nil {
+			return nil, err
+		}
+		found[f.ID] = f
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	result := make([]facility, 0, len(found))
+	for _, id := range ids {
+		if f, ok := found[id]; ok {
+			result = append(result, f)
+		}
+	}
+	return result, nil
+}
+
 type detailResult struct {
 	Facility    facility           `json:"facility"`
 	Inspections []json.RawMessage  `json:"inspections"`

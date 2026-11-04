@@ -2,7 +2,9 @@ package inspection
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"syscall"
@@ -12,6 +14,7 @@ import (
 	"ga-health-inspect/internal/community"
 	"ga-health-inspect/internal/httpencoding"
 	"ganigeorgiev.com/pocketbase/dbx"
+	"ganigeorgiev.com/pocketbase/pocketbase/apis"
 	"ganigeorgiev.com/pocketbase/pocketbase/core"
 	"github.com/jackc/pgx/v5"
 )
@@ -37,6 +40,7 @@ func Register(e *core.ServeEvent) {
 	e.Router.GET("/api/inspect/points", s.points)
 	e.Router.GET("/api/inspect/search", s.search)
 	e.Router.GET("/api/inspect/facilities/{id}", s.detail)
+	e.Router.POST("/api/inspect/facilities/lookup", s.lookup).Bind(apis.SkipSuccessActivityLog())
 }
 func requestContext(e *core.RequestEvent) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(e.Request.Context(), 3*time.Second)
@@ -53,6 +57,38 @@ func (s *service) search(e *core.RequestEvent) error {
 	items, err := s.store.search(ctx, query, permit)
 	if err != nil {
 		return unavailable(e, err)
+	}
+	return e.JSON(http.StatusOK, map[string]any{"facilities": items})
+}
+func (s *service) lookup(e *core.RequestEvent) error {
+	e.Response.Header().Set("Cache-Control", "no-store")
+	body, err := io.ReadAll(io.LimitReader(e.Request.Body, 16*1024+1))
+	if len(body) > 16*1024 {
+		return e.JSON(http.StatusRequestEntityTooLarge, map[string]string{"error": "request too large"})
+	}
+	var input struct {
+		IDs []json.RawMessage `json:"ids"`
+	}
+	if err != nil || !utf8.Valid(body) || json.Unmarshal(body, &input) != nil || len(input.IDs) < 1 || len(input.IDs) > 20 {
+		return e.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+	}
+	ids := make([]string, 0, len(input.IDs))
+	seen := make(map[string]bool, len(input.IDs))
+	for _, raw := range input.IDs {
+		var id string
+		if string(raw) == "null" || json.Unmarshal(raw, &id) != nil || id == "" || len(id) > 500 || !validText(id) {
+			return e.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
+		}
+		if !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+	ctx, cancel := requestContext(e)
+	defer cancel()
+	items, err := s.store.lookup(ctx, ids)
+	if err != nil {
+		return unavailable(e, errors.New("facility lookup failed"))
 	}
 	return e.JSON(http.StatusOK, map[string]any{"facilities": items})
 }
