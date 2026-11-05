@@ -332,7 +332,7 @@ func TestInspectionAPI(t *testing.T) {
 	for _, path := range []string{"/api/inspect/search?sort=bogus", "/api/inspect/search?q=%00", "/api/inspect/search?permit=%FF", "/api/inspect/facilities/%00", "/api/inspect/facilities/%FF"} {
 		code, _, _ := request(server, path, nil)
 		if code != 400 {
-			t.Errorf("invalid input %s: %d", path, code)
+			t.Fatalf("invalid input %s: %d", path, code)
 		}
 	}
 	for _, tc := range []struct{ query, id, place string }{
@@ -364,6 +364,25 @@ func TestInspectionAPI(t *testing.T) {
 		}
 		if err := json.Unmarshal(body, &result); code != 200 || err != nil || len(result.Facilities) != 1 || result.Facilities[0].ID != "123456789012345678" {
 			t.Fatalf("literal search %q: %d %s", query, code, body)
+		}
+	}
+	for _, segment := range []string{`33.7°N 84.3°W`, `33.7490° N, 84.3880° W`, `33°44'56.4"N 84°23'16.8"W`} {
+		_, err := admin.Exec(ctx, `INSERT INTO public.facilities (source_id, raw, google_places) VALUES ('coordinate-test', '{}', $1)`, "https://maps.example/maps/place/"+url.QueryEscape(segment)+"/rest")
+		if err != nil {
+			t.Fatal(err)
+		}
+		code, _, body := request(server, "/api/inspect/facilities/coordinate-test", nil)
+		_, deleteErr := admin.Exec(ctx, `DELETE FROM public.facilities WHERE source_id='coordinate-test'`)
+		if deleteErr != nil {
+			t.Fatal(deleteErr)
+		}
+		var result struct {
+			Facility struct {
+				PlaceName *string `json:"placeName"`
+			} `json:"facility"`
+		}
+		if err := json.Unmarshal(body, &result); code != 200 || err != nil || result.Facility.PlaceName != nil {
+			t.Errorf("coordinate place name %q: %d %s", segment, code, body)
 		}
 	}
 	code, h, detail := request(server, "/api/inspect/facilities/pin", nil)

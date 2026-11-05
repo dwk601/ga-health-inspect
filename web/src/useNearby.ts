@@ -7,6 +7,11 @@ export type Origin = LocationFix & { sequence: number }
 type Candidate = { point: Point; distance: number }
 export const LIST_LIMIT = 20
 
+function inBounds(point: Point, area: MapArea) {
+  const [[west, south], [east, north]] = area.bounds
+  return point.coordinates[0] >= west && point.coordinates[0] <= east && point.coordinates[1] >= south && point.coordinates[1] <= north
+}
+
 // Picks up to LIST_LIMIT places spread over the visible map: a grid splits the view into cells,
 // and each round takes the next place nearest each cell's centre, central cells first.
 function spreadAcross(area: MapArea, points: Point[]) {
@@ -47,10 +52,7 @@ export function useNearby(snapshot: Snapshot | null, permit: string, area: MapAr
   const permitChoices = useMemo(() => {
     if (!snapshot) return []
     const local = snapshot.points.filter(p => {
-      if (area) {
-        const [[west, south], [east, north]] = area.bounds
-        return p.coordinates[0] >= west && p.coordinates[0] <= east && p.coordinates[1] >= south && p.coordinates[1] <= north
-      }
+      if (area) return inBounds(p, area)
       return !!origin && distanceMiles(origin.coordinates, p.coordinates) <= 25
     })
     return [...new Set(local.flatMap(p => p.permitType ? [p.permitType] : []))].sort()
@@ -64,8 +66,7 @@ export function useNearby(snapshot: Snapshot | null, permit: string, area: MapAr
   }, [origin, snapshot, permit])
   const areaPoints = useMemo(() => {
     if (!area || !snapshot) return []
-    const [[west, south], [east, north]] = area.bounds
-    return snapshot.points.filter(p => (!permit || p.permitType === permit) && p.coordinates[0] >= west && p.coordinates[0] <= east && p.coordinates[1] >= south && p.coordinates[1] <= north)
+    return snapshot.points.filter(p => (!permit || p.permitType === permit) && inBounds(p, area))
   }, [area, snapshot, permit])
   const areaCandidates = useMemo(() => {
     if (!area) return []

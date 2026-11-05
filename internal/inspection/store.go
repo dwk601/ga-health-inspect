@@ -86,7 +86,7 @@ func scanFacility(row interface{ Scan(...any) error }) (facility, error) {
 	return f, err
 }
 
-var coordinateName = regexp.MustCompile(`(?i)^\s*[+-]?\d+(?:\.\d+)?\s*(?:,\s*[+-]?\d+(?:\.\d+)?|°.*[NS]\s*\d+°.*[EW])\s*$`)
+var coordinateName = regexp.MustCompile(`(?i)^[\d\s.,°'′"″+\-NSEW]*\d[\d\s.,°'′"″+\-NSEW]*$`)
 
 // The place segment is the first path segment after /maps/place/, matching the SQL split_part convention below.
 func placeName(raw *string) *string {
@@ -124,17 +124,7 @@ func (s *store) search(ctx context.Context, query, permit, sort string) ([]facil
 	}
 	nameNorm := `regexp_replace(lower(coalesce(name,'')), '[^a-z0-9]+', '', 'g')`
 	placeNorm := `regexp_replace(lower(split_part(split_part(coalesce(google_places,''), '/maps/place/', 2), '/', 1)), '(%[0-9a-f]{2}|[^a-z0-9%])+', '', 'g')`
-	matching, rank := "", ""
-	if normalized != "" {
-		matching = ` OR strpos(` + nameNorm + `, $3) > 0 OR strpos(` + placeNorm + `, $3) > 0`
-		rank = `CASE WHEN strpos(` + nameNorm + `, $3) = 1 OR strpos(` + placeNorm + `, $3) = 1 THEN 0 WHEN strpos(` + nameNorm + `, $3) > 0 OR strpos(` + placeNorm + `, $3) > 0 THEN 1 ELSE 2 END, `
-	}
-	rows, err := s.pool.Query(ctx, `SELECT `+facilityFields+` FROM public.facilities WHERE ($1 = '' OR name ILIKE '%' || $1 || '%' ESCAPE E'\\' OR address ILIKE '%' || $1 || '%' ESCAPE E'\\' OR source_id ILIKE '%' || $1 || '%' ESCAPE E'\\'`+matching+`) AND ($2 = '' OR permit_type = $2) ORDER BY `+order+rank+`name NULLS LAST, source_id LIMIT 100`, append([]any{query, permit}, func() []any {
-		if normalized != "" {
-			return []any{normalized}
-		}
-		return nil
-	}()...)...)
+	rows, err := s.pool.Query(ctx, `SELECT `+facilityFields+` FROM public.facilities WHERE ($1 = '' OR name ILIKE '%' || $1 || '%' ESCAPE E'\\' OR address ILIKE '%' || $1 || '%' ESCAPE E'\\' OR source_id ILIKE '%' || $1 || '%' ESCAPE E'\\' OR ($3 <> '' AND (strpos(`+nameNorm+`, $3) > 0 OR strpos(`+placeNorm+`, $3) > 0))) AND ($2 = '' OR permit_type = $2) ORDER BY `+order+`CASE WHEN $3 = '' THEN 2 WHEN strpos(`+nameNorm+`, $3) = 1 OR strpos(`+placeNorm+`, $3) = 1 THEN 0 WHEN strpos(`+nameNorm+`, $3) > 0 OR strpos(`+placeNorm+`, $3) > 0 THEN 1 ELSE 2 END, name NULLS LAST, source_id LIMIT 100`, query, permit, normalized)
 	if err != nil {
 		return nil, err
 	}
@@ -194,12 +184,12 @@ func (s *store) location(ctx context.Context, id string) (bool, []float64, error
 	if s.pool == nil {
 		return false, nil, errors.New("source unavailable")
 	}
-	var url *string
-	err := s.pool.QueryRow(ctx, `SELECT google_places FROM public.facilities WHERE source_id=$1`, id).Scan(&url)
+	var placeURL *string
+	err := s.pool.QueryRow(ctx, `SELECT google_places FROM public.facilities WHERE source_id=$1`, id).Scan(&placeURL)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil, nil
 	}
-	return err == nil, coordinates(url), err
+	return err == nil, coordinates(placeURL), err
 }
 
 func (s *store) detail(ctx context.Context, id string) (*detailResult, error) {

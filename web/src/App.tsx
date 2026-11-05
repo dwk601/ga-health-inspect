@@ -91,7 +91,7 @@ const RESULT_LIMIT = 100
 
 function resultSummary(count: number, searching: boolean, sort: string) {
   if (searching) return 'Searching…'
-  if (count >= RESULT_LIMIT && sort) return 'Top 100 by inspection score'
+  if (count >= RESULT_LIMIT && sort) return `${sort === 'score-asc' ? 'Lowest' : 'Top'} ${RESULT_LIMIT} by inspection score`
   if (count >= RESULT_LIMIT) return `First ${RESULT_LIMIT} facilities, refine to narrow`
   return `${count} ${count === 1 ? 'facility' : 'facilities'}`
 }
@@ -157,6 +157,11 @@ function Directory({ query, setQuery, permit, setPermit, sort, setSort, snapshot
     })
   }, [nearby.facilities, sort])
   const nearButton = useRef<HTMLButtonElement>(null)
+  const chips = useRef<HTMLDivElement | null>(null)
+  const chipsRef = useCallback((node: HTMLDivElement | null) => {
+    if (!node && chips.current?.contains(document.activeElement)) document.querySelector<HTMLInputElement>('#search')?.focus()
+    chips.current = node
+  }, [])
   const focusNear = () => nearButton.current?.focus()
   const leave = () => { focusNear(); leaveArea() }
   const hasList = nearby.active || area ? nearby.facilities.length > 0 && !nearby.loading && !nearby.error && !nearby.lookupError : !searchMessage && (!searching || facilities.length > 0)
@@ -178,7 +183,7 @@ function Directory({ query, setQuery, permit, setPermit, sort, setSort, snapshot
         <div className="discovery-actions"><button ref={nearButton} className="primary near-button" onClick={nearby.locating ? nearby.exit : startNearby}><LocateFixed size={17} aria-hidden />{nearby.locating ? 'Cancel locating' : 'Near me'}</button>{(nearby.active || area) && <button onClick={leave}>All Georgia</button>}</div>
       </div>
     </div>
-    {(permitChoices.length >= 2 || permit) && <div className="permit-chips" role="group" aria-label="Permit type">{['', ...permitChoices].map(p => <button key={p} aria-pressed={permit === p} onClick={() => setPermit(p)}>{p || 'All types'}</button>)}</div>}
+    {(permitChoices.length >= 2 || permit) && <div ref={chipsRef} className="permit-chips" role="group" aria-label="Permit type">{['', ...permitChoices].map(p => <button key={p} aria-pressed={permit === p} onClick={() => setPermit(p)}>{p || 'All types'}</button>)}</div>}
     <div className="results-heading"><span role={local ? undefined : 'status'}>{area ? 'Places in this map area' : nearby.active ? 'Nearby places' : searchMessage ? 'Search unavailable' : resultSummary(facilities.length, searching, sort)}</span><label htmlFor="sort">Sort</label><select id="sort" value={sort} onChange={e => setSort(e.target.value)}><option value="">{area ? 'Default' : nearby.active ? 'Nearest' : query.trim() ? 'Best match' : 'Name'}</option><option value="score-desc">Highest score</option><option value="score-asc">Lowest score</option></select></div>
     {local && sort && <p className="directory-notice">Score sorting reorders the shown places only.</p>}
     {(nearby.active || area) && snapshot && mapMessage && <p className="directory-notice">{mapMessage}</p>}
