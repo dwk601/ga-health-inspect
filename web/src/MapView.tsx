@@ -101,19 +101,6 @@ function SelectedLocation({ selected, point }: { selected: string | null; point:
   return null
 }
 
-function ClusterVisibility({ hidden }: { hidden: boolean }) {
-  const { map, isLoaded } = useMap()
-  useEffect(() => {
-    if (!map || !isLoaded) return
-    for (const layer of map.getStyle().layers) {
-      if ('source' in layer && typeof layer.source === 'string' && layer.source.startsWith('cluster-source-')) {
-        map.setLayoutProperty(layer.id, 'visibility', hidden ? 'none' : 'visible')
-      }
-    }
-  }, [map, isLoaded, hidden])
-  return null
-}
-
 const clusterColors: [string, string, string] = ['#3386bd', '#226693', '#164d78']
 const key = import.meta.env.VITE_CARTO_KEY as string | undefined
 function transformRequest(url: string) {
@@ -126,10 +113,8 @@ function transformRequest(url: string) {
   }
   return { url }
 }
-export function MapView({ points, statewidePoints, facilities, fitPoints, ready, origin, nearby, selected, onSelect, theme, detail, detailError, area, reset, onArea, cancelKey }: { points: Point[]; statewidePoints: Point[]; facilities: Facility[]; fitPoints: Point[]; ready: boolean; origin: Origin | null; nearby: boolean; selected: string | null; onSelect: (id: string | null) => void; theme: 'light' | 'dark'; detail: Facility | null; detailError: boolean; area: boolean; reset: number; onArea: (area: MapArea) => void; cancelKey: string }) {
+export function MapView({ selectedPoint: point, statewidePoints, fitPoints, ready, origin, nearby, selected, onSelect, theme, detail, detailError, area, reset, onArea, cancelKey }: { selectedPoint: Point | undefined; statewidePoints: Point[]; fitPoints: Point[]; ready: boolean; origin: Origin | null; nearby: boolean; selected: string | null; onSelect: (id: string | null) => void; theme: 'light' | 'dark'; detail: Facility | null; detailError: boolean; area: boolean; reset: number; onArea: (area: MapArea) => void; cancelKey: string }) {
   const data = useMemo<GeoJSON.FeatureCollection<GeoJSON.Point, { id: string }>>(() => ({ type: 'FeatureCollection', features: statewidePoints.map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: p.coordinates }, properties: { id: p.id } })) }), [statewidePoints])
-  const point = points.find(p => p.id === selected)
-  const names = useMemo(() => new globalThis.Map(facilities.map(f => [f.id, f.name || 'Unnamed facility'])), [facilities])
   const [failed, setFailed] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [attempt, setAttempt] = useState(0)
@@ -147,8 +132,7 @@ export function MapView({ points, statewidePoints, facilities, fitPoints, ready,
     <AreaMovement onArea={onArea} cancelKey={cancelKey} />
     <FitView selected={selected} nearby={nearby} origin={origin} fitPoints={fitPoints} ready={ready} area={area} reset={reset} />
     <MapClusterLayer data={data} clusterColors={clusterColors} pointColor={theme === 'dark' ? '#7cc3ee' : '#164d78'} onPointClick={feature => onSelect(feature.properties.id)} />
-    <ClusterVisibility hidden={nearby} />
-    {nearby && <>{points.map(p => <MapMarker key={p.id} longitude={p.coordinates[0]} latitude={p.coordinates[1]}><MarkerContent><button className={`nearby-marker ${p.id === selected ? 'selected' : ''}`} aria-label={`View ${names.get(p.id) ?? (p.id === selected ? detail?.name : null) ?? 'unnamed facility'}`} onClick={() => onSelect(p.id)} /></MarkerContent></MapMarker>)}{origin && <MapMarker longitude={origin.coordinates[0]} latitude={origin.coordinates[1]}><MarkerContent className="origin-marker-container"><span className="origin-marker" role="img" aria-label="Your location"><span aria-hidden="true">◆</span> You</span></MarkerContent></MapMarker>}</>}
+    {nearby && origin && <MapMarker longitude={origin.coordinates[0]} latitude={origin.coordinates[1]}><MarkerContent className="origin-marker-container"><span className="origin-marker" role="img" aria-label="Your location"><span aria-hidden="true">◆</span> You</span></MarkerContent></MapMarker>}
     <SelectedLocation selected={selected} point={point} />
     <MapControls position="bottom-right" showZoom />
     {point && <MapPopup longitude={point.coordinates[0]} latitude={point.coordinates[1]} onClose={() => onSelect(null)} closeButton closeOnClick={false} focusAfterOpen={false}><div className="map-popup">{detail ? <><strong>{detail.name || 'Unnamed facility'}</strong><p>Inspection score: {detail.lastInspectionScore ?? 'Not available'}</p></> : <p>{detailError ? 'Facility details unavailable.' : 'Loading facility…'}</p>}</div></MapPopup>}

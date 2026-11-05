@@ -446,9 +446,6 @@ textarea {
 .nearby-map-status p { margin: 0; }
 .nearby-map-status button { min-height: 44px; margin: .5rem .5rem 0 0; padding: .5rem .75rem; border: 1px solid var(--border); border-radius: 7px; background: var(--card); color: var(--foreground); font-weight: 600; }
 .map-near { position: absolute; z-index: 2; top: 1rem; right: 1rem; display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-height: 44px; padding: .6rem .9rem; border: 1px solid var(--border); border-radius: 9px; background: var(--card); color: var(--foreground); box-shadow: var(--shadow); font-weight: 650; }
-.nearby-marker { display: grid; place-items: center; width: 44px; height: 44px; border: 0; background: transparent; }
-.nearby-marker::after { content: ''; width: 22px; height: 22px; border: 3px solid var(--card); border-radius: 50%; background: var(--primary); box-shadow: var(--shadow); }
-.nearby-marker.selected::after { outline: 3px solid var(--primary); outline-offset: 2px; }
 .maplibregl-marker:has(.origin-marker) { z-index: 1; }
 .origin-marker { display: inline-flex; align-items: center; gap: .25rem; padding: .3rem .5rem; background: var(--card); border: 2px solid var(--primary); border-radius: 6px; color: var(--foreground); white-space: nowrap; font-size: .75rem; font-weight: 700; box-shadow: var(--shadow); }
 .map-popup {
