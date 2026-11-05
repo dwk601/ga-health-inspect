@@ -5,6 +5,37 @@ import type { Facility, MapArea, Point, Snapshot } from './types'
 
 export type Origin = LocationFix & { sequence: number }
 type Candidate = { point: Point; distance: number }
+const AREA_LIMIT = 20
+
+// Picks up to AREA_LIMIT places spread over the visible map: a grid splits the view into cells,
+// and each round takes the next place nearest each cell's centre, central cells first.
+function spreadAcross(area: MapArea, points: Point[]) {
+  const [[west, south], [east, north]] = area.bounds
+  const lonSpan = east - west
+  const latSpan = north - south
+  const aspect = lonSpan * Math.cos(area.center[1] * Math.PI / 180) / latSpan
+  const columns = Math.max(1, Math.min(AREA_LIMIT, Math.round(Math.sqrt(AREA_LIMIT * aspect))))
+  const rows = Math.ceil(AREA_LIMIT / columns)
+  const cells = new Map<number, { center: [number, number]; places: Candidate[] }>()
+  for (const point of points) {
+    const column = Math.min(columns - 1, Math.floor((point.coordinates[0] - west) / lonSpan * columns))
+    const row = Math.min(rows - 1, Math.floor((north - point.coordinates[1]) / latSpan * rows))
+    const index = row * columns + column
+    let cell = cells.get(index)
+    if (!cell) {
+      cell = { center: [west + (column + 0.5) * lonSpan / columns, north - (row + 0.5) * latSpan / rows], places: [] }
+      cells.set(index, cell)
+    }
+    cell.places.push({ point, distance: distanceMiles(cell.center, point.coordinates) })
+  }
+  const ordered = [...cells.values()].sort((a, b) => distanceMiles(area.center, a.center) - distanceMiles(area.center, b.center))
+  for (const cell of ordered) cell.places.sort((a, b) => a.distance - b.distance || a.point.id.localeCompare(b.point.id))
+  const picked: Point[] = []
+  for (let round = 0; picked.length < AREA_LIMIT && picked.length < points.length; round++) {
+    for (const cell of ordered) if (round < cell.places.length && picked.length < AREA_LIMIT) picked.push(cell.places[round].point)
+  }
+  return picked
+}
 
 
 export function useNearby(snapshot: Snapshot | null, permit: string, area: MapArea | null) {
@@ -20,14 +51,19 @@ export function useNearby(snapshot: Snapshot | null, permit: string, area: MapAr
       .filter(item => item.distance <= 25)
       .sort((a, b) => a.distance - b.distance || (a.point.id < b.point.id ? -1 : a.point.id > b.point.id ? 1 : 0)).slice(0, 20)
   }, [origin, snapshot, permit])
-  const areaCandidates = useMemo(() => {
+  const areaPoints = useMemo(() => {
     if (!area || !snapshot) return []
     const [[west, south], [east, north]] = area.bounds
     return snapshot.points.filter(p => (!permit || p.permitType === permit) && p.coordinates[0] >= west && p.coordinates[0] <= east && p.coordinates[1] >= south && p.coordinates[1] <= north)
-      .map(point => ({ point, distance: distanceMiles(area.center, point.coordinates) }))
-      .sort((a, b) => a.distance - b.distance || a.point.id.localeCompare(b.point.id))
   }, [area, snapshot, permit])
-  const listCandidates = area ? areaCandidates.slice(0, 20) : candidates
+  const areaCandidates = useMemo(() => {
+    if (!area) return []
+    const from = origin?.coordinates ?? area.center
+    return spreadAcross(area, areaPoints)
+      .map(point => ({ point, distance: distanceMiles(from, point.coordinates) }))
+      .sort((a, b) => a.distance - b.distance || a.point.id.localeCompare(b.point.id))
+  }, [area, areaPoints, origin])
+  const listCandidates = area ? areaCandidates : candidates
   const lookup = useFacilityLookup(listCandidates, !!snapshot && (active && !!origin || !!area))
   const exit = useCallback(() => { sequence.current++; setActive(false); setLocating(false); setOrigin(null); setError('') }, [])
   const locate = useCallback(() => {
@@ -49,7 +85,7 @@ export function useNearby(snapshot: Snapshot | null, permit: string, area: MapAr
   useEffect(() => () => { sequence.current++ }, [])
   const ids = new Set(lookup.facilities.map(f => f.id))
   return {
-    active, origin, locating, error, candidates: listCandidates, fitCandidates: candidates, areaCount: areaCandidates.length, canLocate: window.isSecureContext && !!navigator.geolocation,
+    active, origin, locating, error, candidates: listCandidates, fitCandidates: candidates, areaCount: areaPoints.length, canLocate: window.isSecureContext && !!navigator.geolocation,
     points: listCandidates.filter(c => ids.has(c.point.id)).map(c => c.point),
     distances: new Map(origin ? listCandidates.map(c => [c.point.id, distanceMiles(origin.coordinates, c.point.coordinates)]) : []),
     ...lookup,

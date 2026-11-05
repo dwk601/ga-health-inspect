@@ -106,7 +106,7 @@ function nearbyStatus(nearby: Nearby, snapshot: Snapshot | null, pointsLoading: 
   if (nearby.lookupError) return { text: `${nearby.lookupError}${accuracy}`, error: true }
   if (area) {
     const missing = nearby.missing ? ` ${nearby.missing} ${nearby.missing === 1 ? 'place is' : 'places are'} missing details.` : ''
-    return { text: nearby.areaCount > 20 ? `Showing 20 of ${nearby.areaCount} places in this area. Zoom in to see others.${missing}` : nearby.areaCount ? `${nearby.areaCount} ${nearby.areaCount === 1 ? 'place' : 'places'} in this area.${missing}` : 'No places in this map area.', error: false }
+    return { text: nearby.areaCount > 20 ? `Showing 20 of ${nearby.areaCount} places spread across this area. Zoom in to see others.${missing}` : nearby.areaCount ? `${nearby.areaCount} ${nearby.areaCount === 1 ? 'place' : 'places'} in this area.${missing}` : 'No places in this map area.', error: false }
   }
   if (!nearby.candidates.length) return { text: `No places found within 25 miles${permit ? ' for this type' : ''}.${accuracy}`, error: false }
   const missing = nearby.missing ? ` ${nearby.missing} nearby ${nearby.missing === 1 ? 'place is' : 'places are'} missing details and not shown.` : ''
