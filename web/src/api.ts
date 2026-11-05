@@ -45,6 +45,11 @@ export async function search(q: string, permit: string, signal: AbortSignal) {
   }
   return data
 }
+export function cachedFacilities(ids: string[]): Facility[] | null {
+  const now = Date.now()
+  if (ids.some(id => (facilityCache.get(id)?.expires ?? 0) <= now)) return null
+  return ids.flatMap(id => { const facility = facilityCache.get(id)?.facility; return facility ? [facility] : [] })
+}
 export async function lookupFacilities(ids: string[], signal: AbortSignal) {
   const missing = ids.filter(id => (facilityCache.get(id)?.expires ?? 0) <= Date.now())
   if (missing.length) {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { lookupFacilities } from './api'
+import { cachedFacilities, lookupFacilities } from './api'
 import { distanceMiles, geolocationFailureMessage, type LocationFix } from './geolocation'
 import type { Facility, MapArea, Point, Snapshot } from './types'
 
@@ -39,7 +39,7 @@ export function useNearby(snapshot: Snapshot | null, permit: string, area: MapAr
     }
     navigator.geolocation.getCurrentPosition(position => {
       if (sequence.current !== current) return
-      setOrigin({ coordinates: [position.coords.longitude, position.coords.latitude], accuracy: position.coords.accuracy, timestamp: position.timestamp, sequence: current }); setLocating(false)
+      setOrigin({ coordinates: [position.coords.longitude, position.coords.latitude], accuracy: position.coords.accuracy, timestamp: Date.now(), sequence: current }); setLocating(false)
     }, failure => {
       if (sequence.current !== current) return
       setLocating(false)
@@ -51,7 +51,7 @@ export function useNearby(snapshot: Snapshot | null, permit: string, area: MapAr
   return {
     active, origin, locating, error, candidates: listCandidates, fitCandidates: candidates, areaCount: areaCandidates.length, canLocate: window.isSecureContext && !!navigator.geolocation,
     points: listCandidates.filter(c => ids.has(c.point.id)).map(c => c.point),
-    distances: new Map(listCandidates.map(c => [c.point.id, origin ? distanceMiles(origin.coordinates, c.point.coordinates) : c.distance])),
+    distances: new Map(origin ? listCandidates.map(c => [c.point.id, distanceMiles(origin.coordinates, c.point.coordinates)]) : []),
     ...lookup,
     locate, exit,
   }
@@ -62,13 +62,14 @@ function useFacilityLookup(candidates: Candidate[], enabled: boolean) {
   const [retryVersion, setRetryVersion] = useState(0)
   const key = JSON.stringify(candidates.map(c => c.point.id))
   useEffect(() => {
-    if (!enabled || key === '[]') return
+    if (!enabled || key === '[]' || cachedFacilities(JSON.parse(key) as string[]) !== null) return
     const controller = new AbortController()
     lookupFacilities(JSON.parse(key) as string[], controller.signal).then(facilities => {
       if (!controller.signal.aborted) setLookup({ key, facilities, error: '' })
     }).catch(() => { if (!controller.signal.aborted) setLookup({ key, facilities: [], error: 'Place details are unavailable. Try again.' }) })
     return () => controller.abort()
   }, [enabled, key, retryVersion])
-  const current = lookup?.key === key ? lookup : null
+  const cached = enabled ? cachedFacilities(candidates.map(c => c.point.id)) : null
+  const current = cached !== null ? { facilities: cached, error: '' } : lookup?.key === key ? lookup : null
   return { facilities: current?.facilities ?? [], loading: enabled && !!candidates.length && !current, lookupError: current?.error ?? '', missing: current && !current.error ? candidates.length - current.facilities.length : 0, retry: () => { setLookup(null); setRetryVersion(v => v + 1) } }
 }

@@ -1,10 +1,16 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { ClientResponseError, type RecordModel } from 'pocketbase'
 import { pb, errorMessage, refreshAuth } from './api'
-import { distanceMiles, geolocationFailureMessage, type LocationFix } from './geolocation'
+import { distanceMiles, geolocationFailureMessage, getPreciseLocation, type LocationFix } from './geolocation'
 import type { Contribution } from './types'
 
 type Item = Contribution & RecordModel
+type Eligibility = { state: 'unknown' | 'checking' | 'eligible' | 'far' | 'outside' | 'imprecise' | 'unavailable' | 'expired'; text: string; expires?: number }
+const unknownLocation: Eligibility = { state: 'unknown', text: 'Check your location to see if you can rate here.' }
+function locationError(error: unknown) {
+  const code = typeof error === 'object' && error && 'code' in error ? error.code : undefined
+  return error instanceof Error ? error.message : geolocationFailureMessage(code)
+}
 const visibleText = /[^\s\p{Z}\p{C}\u{034F}\u{115F}\u{1160}\u{17B4}\u{17B5}\u{180B}-\u{180F}\u{2800}\u{3164}\u{FE00}-\u{FE0F}\u{FFA0}\u{E0100}-\u{E01EF}]/u
 const postedDate = new Intl.DateTimeFormat('en-US', { dateStyle: 'medium' })
 
@@ -23,11 +29,13 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, user, 
   const [checkingLocation, setCheckingLocation] = useState(false)
   const generation = useRef(0)
   const locationRequest = useRef(0)
-  const [eligibility, setEligibility] = useState<{ state: string; text: string; expires?: number }>({ state: 'unknown', text: 'Check your location to see if you can rate here.' })
+  const [eligibility, setEligibility] = useState<Eligibility>(unknownLocation)
   useEffect(() => { generation.current++; return () => { generation.current++; locationRequest.current++ } }, [facilityId, user?.id])
-  function assess(fix: LocationFix, precise: boolean) {
-    if (!coordinates) return { state: 'unknown', text: 'Map location is unavailable.' }
-    const miles = distanceMiles(fix.coordinates, coordinates)
+  const longitude = coordinates?.[0]
+  const latitude = coordinates?.[1]
+  const assess = useCallback((fix: LocationFix, precise: boolean): Eligibility => {
+    if (longitude === undefined || latitude === undefined) return { state: 'unknown', text: 'Map location is unavailable.' }
+    const miles = distanceMiles(fix.coordinates, [longitude, latitude])
     const meters = miles * 1609.344
     const expires = fix.timestamp + 120000
     if (expires <= Date.now()) return { state: 'expired', text: 'Your location has expired. Check again.' }
@@ -36,31 +44,28 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, user, 
       return { state: 'far', text: `You're not at this place. You're about ${distance} away - ratings can only be saved on-site, within about 500 ft. You can still comment.`, expires }
     }
     if (precise && fix.accuracy <= 100) return meters <= 150 ? { state: 'eligible', text: 'Your location is within rating range.', expires } : { state: 'outside', text: 'Your location is outside rating range. Ratings can only be saved on-site, within about 500 ft. You can still comment.', expires }
-    return precise ? { state: 'imprecise', text: "Your location isn't precise enough to rate. Move outdoors or enable precise location and check again.", expires } : { state: 'unknown', text: 'Check your location to see if you can rate here.', expires }
-  }
-  async function checkLocation() {
+    return precise ? { state: 'imprecise', text: "Your location isn't precise enough to rate. Move outdoors or enable precise location and check again.", expires } : { ...unknownLocation, expires }
+  }, [longitude, latitude])
+  const checkLocation = useCallback(async () => {
     const request = ++locationRequest.current
     setEligibility({ state: 'checking', text: 'Checking location…' })
     try {
-      if (!window.isSecureContext || !navigator.geolocation) throw new Error(geolocationFailureMessage(undefined))
-      const position = await new Promise<GeolocationPosition>((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }))
+      const fix = await getPreciseLocation()
       if (request !== locationRequest.current) return
-      setEligibility(assess({ coordinates: [position.coords.longitude, position.coords.latitude], accuracy: position.coords.accuracy, timestamp: position.timestamp }, true))
+      setEligibility(assess(fix, true))
     } catch (error) {
       if (request !== locationRequest.current) return
-      const code = typeof error === 'object' && error && 'code' in error ? error.code : undefined
-      setEligibility({ state: 'unavailable', text: error instanceof Error ? error.message : geolocationFailureMessage(code) })
+      setEligibility({ state: 'unavailable', text: locationError(error) })
     }
-  }
+  }, [assess])
   useEffect(() => {
-    if (!user?.verified || mapped !== true || !coordinates) return
-    if (origin) setEligibility(assess(origin, false))
+    if (!user?.verified || mapped !== true || longitude === undefined || latitude === undefined) return
+    setEligibility(previous => previous.state === 'checking' ? previous : origin ? assess(origin, false) : unknownLocation)
     let active = true
-    navigator.permissions?.query({ name: 'geolocation' }).then(permission => { if (active && permission.state === 'granted') void checkLocation() }).catch(() => {})
-    return () => { active = false; locationRequest.current++ }
-  // Coordinates represent a stable snapshot location; recheck when it changes.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [facilityId, user?.id, user?.verified, mapped, coordinates?.[0], coordinates?.[1], origin])
+    const request = locationRequest.current
+    navigator.permissions?.query({ name: 'geolocation' }).then(permission => { if (active && request === locationRequest.current && permission.state === 'granted') void checkLocation() }).catch(() => {})
+    return () => { active = false }
+  }, [user?.verified, mapped, longitude, latitude, origin, assess, checkLocation])
   useEffect(() => {
     if (!eligibility.expires) return
     const timer = window.setTimeout(() => setEligibility({ state: 'expired', text: 'Your location has expired. Check again.' }), Math.max(0, eligibility.expires - Date.now()))
@@ -78,7 +83,7 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, user, 
     const own = ratings.find(r => r.owner === user?.id)
     const body = String(data.get('body') ?? '').trim()
     if (kind === 'comments' && !visibleText.test(body)) { setMessage("Comment can't be blank."); return }
-    if (kind === 'ratings' && mapped === false) return
+    if (kind === 'ratings' && (mapped !== true || eligibility.state === 'checking' || eligibility.state === 'far' || eligibility.state === 'outside')) return
     const current = generation.current
     const pending = kind === 'ratings' ? setRatingPending : setCommentPending
     pending(true)
@@ -86,16 +91,14 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, user, 
       let location = {}
       if (kind === 'ratings') {
         locationRequest.current++
-        setCheckingLocation(true); setMessage('')
-        if (!window.isSecureContext) throw new Error('Location requires a secure connection. Open this site over HTTPS and try again.')
-        if (!navigator.geolocation) throw new Error('This browser does not support location.')
-        const position = await new Promise<GeolocationPosition>((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }))
+        setCheckingLocation(true); setEligibility({ state: 'checking', text: 'Checking location…' }); setMessage('')
+        const fix = await getPreciseLocation()
         if (generation.current !== current) return
         setCheckingLocation(false)
-        const result = assess({ coordinates: [position.coords.longitude, position.coords.latitude], accuracy: position.coords.accuracy, timestamp: position.timestamp }, true)
+        const result = assess(fix, true)
         setEligibility(result)
         if (result.state !== 'eligible') return
-        location = { latitude: position.coords.latitude, longitude: position.coords.longitude, accuracy: position.coords.accuracy }
+        location = { latitude: fix.coordinates[1], longitude: fix.coordinates[0], accuracy: fix.accuracy }
       }
       if (kind === 'ratings' && own) await pb.collection(kind).update(own.id, { rating: Number(data.get('rating')), ...location })
       else await pb.collection(kind).create({ owner: user?.id, facility_id: facilityId, ...(kind === 'ratings' ? { rating: Number(data.get('rating')), ...location } : { body }) })
@@ -105,8 +108,7 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, user, 
     } catch (error) {
       if (generation.current !== current) return
       if (kind === 'ratings' && !(error instanceof ClientResponseError)) {
-        const code = typeof error === 'object' && error && 'code' in error ? error.code : undefined
-        setMessage(error instanceof Error ? error.message : geolocationFailureMessage(code))
+        setEligibility({ state: 'unavailable', text: locationError(error) })
       } else { setMessage(errorMessage(error, kind === 'ratings' ? 'save your rating' : 'post your comment', kind === 'ratings' && !!own, true)); void refreshAuth() }
     } finally { if (generation.current === current) { pending(false); if (kind === 'ratings') setCheckingLocation(false) } }
   }
@@ -135,6 +137,7 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, user, 
   }
   const canRemove = (item: Item) => !!user && (item.owner === user.id || user.role === 'moderator' || user.role === 'admin')
   const ownRating = ratings.find(r => r.owner === user?.id)?.rating
+  const locationBlocked = mapped !== true || ['far', 'outside', 'checking'].includes(eligibility.state)
   const byline = (item: Item) => <span className="byline"><strong>{item.authorName}</strong><time dateTime={item.created}>{postedDate.format(new Date(item.created.replace(' ', 'T')))}</time></span>
   const adminId = (item: Item) => user?.role === 'admin' && <small>User ID: {item.owner}</small>
 
@@ -144,9 +147,9 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, user, 
     {user?.verified ? <div className="contribute">
       <form onSubmit={e => submit(e, 'ratings')} className="compact-form">
         <p className="muted">Enable location while you're here to rate. Comments don't require location.</p>
-        <div className="notice" role="status"><p id="rating-location">{mapped === false ? 'This facility has no map location, so ratings are unavailable.' : mapped === undefined ? 'Loading map location…' : eligibility.text}</p>{mapped === true && <button type="button" onClick={() => void checkLocation()} disabled={eligibility.state === 'checking'}>{eligibility.state === 'unknown' ? 'Check my location' : 'Check again'}</button>}</div>
-        <RatingPicker key={`${user.id}-${ownRating ?? 'new'}`} value={ownRating} disabled={mapped === false || eligibility.state === 'far' || eligibility.state === 'outside'} />
-        <button className="primary" disabled={ratingPending || mapped === false || eligibility.state === 'far' || eligibility.state === 'outside'}>{ratingPending ? 'Saving…' : ownRating ? 'Update rating' : 'Save rating'}</button>
+        <div className={`notice ${mapped === true && (eligibility.state === 'far' || eligibility.state === 'outside') ? 'location-warning' : ''}`} role="status"><p id="rating-location">{mapped === false ? 'This facility has no map location, so ratings are unavailable.' : mapped === undefined ? 'Loading map location…' : eligibility.text}</p>{mapped === true && <button type="button" onClick={() => void checkLocation()} disabled={ratingPending || eligibility.state === 'checking'}>{eligibility.state === 'unknown' ? 'Check my location' : 'Check again'}</button>}</div>
+        <RatingPicker key={`${user.id}-${ownRating ?? 'new'}`} value={ownRating} disabled={locationBlocked} />
+        <button className="primary" disabled={ratingPending || locationBlocked}>{ratingPending ? 'Saving…' : ownRating ? 'Update rating' : 'Save rating'}</button>
       </form>
       <form className="comment-composer" onSubmit={e => submit(e, 'comments')}>
         <label htmlFor="comment">Your comment<textarea id="comment" name="body" maxLength={2000} required rows={3} placeholder="What was your visit like?" /></label>

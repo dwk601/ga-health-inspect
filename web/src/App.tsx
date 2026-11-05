@@ -105,7 +105,7 @@ function nearbyStatus(nearby: Nearby, snapshot: Snapshot | null, pointsLoading: 
   if (nearby.loading) return { text: `Loading place details…${accuracy}`, error: false }
   if (nearby.lookupError) return { text: `${nearby.lookupError}${accuracy}`, error: true }
   if (area) {
-    const missing = nearby.missing ? ` ${nearby.missing} places are missing details.` : ''
+    const missing = nearby.missing ? ` ${nearby.missing} ${nearby.missing === 1 ? 'place is' : 'places are'} missing details.` : ''
     return { text: nearby.areaCount > 20 ? `Showing 20 of ${nearby.areaCount} places in this area. Zoom in to see others.${missing}` : nearby.areaCount ? `${nearby.areaCount} ${nearby.areaCount === 1 ? 'place' : 'places'} in this area.${missing}` : 'No places in this map area.', error: false }
   }
   if (!nearby.candidates.length) return { text: `No places found within 25 miles${permit ? ' for this type' : ''}.${accuracy}`, error: false }
@@ -162,7 +162,7 @@ function Directory({ query, setQuery, permit, setPermit, snapshot, facilities, s
           <Search size={18} aria-hidden />
           <input id="search" type="search" aria-label="Search by name, address, or ID" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search all Georgia" autoComplete="off" />
         </div>
-        <div className="discovery-actions"><button ref={nearButton} className="primary near-button" onClick={nearby.locating ? leave : startNearby}><LocateFixed size={17} aria-hidden />{nearby.locating ? 'Cancel locating' : 'Near me'}</button>{(nearby.active || area) && <button onClick={leave}>All Georgia</button>}</div>
+        <div className="discovery-actions"><button ref={nearButton} className="primary near-button" onClick={nearby.locating ? nearby.exit : startNearby}><LocateFixed size={17} aria-hidden />{nearby.locating ? 'Cancel locating' : 'Near me'}</button>{(nearby.active || area) && <button onClick={leave}>All Georgia</button>}</div>
       </div>
     </div>
     <div className="permit-chips" role="group" aria-label="Permit type">{['', ...(snapshot?.permitChoices ?? [])].map(p => <button key={p} aria-pressed={permit === p} onClick={() => setPermit(p)}>{p || 'All types'}</button>)}</div>
@@ -196,10 +196,11 @@ export default function App() {
   const { facilities, searchMessage, searching } = useStatewideSearch(query, permit, nearby.active || !!area)
   const points = useMemo(() => (snapshot?.points || []).filter(p => !permit || p.permitType === permit), [snapshot, permit])
   const fitPoints = useMemo(() => nearby.fitCandidates.map(c => c.point), [nearby.fitCandidates])
-  const leaveArea = () => { setArea(null); setMovementVersion(v => v + 1); nearby.exit(); setReset(v => v + 1) }
-  const startNearby = () => { setArea(null); setMovementVersion(v => v + 1); setRestoreId(null); setQuery(''); nearby.locate() }
-  const updateQuery = (value: string) => { setArea(null); setMovementVersion(v => v + 1); if (nearby.active) nearby.exit(); setQuery(value) }
-  const onArea = useCallback((next: MapArea) => { if (!query.trim() && !nearby.locating) setArea(next) }, [query, nearby.locating])
+  const clearArea = () => { setArea(null); setMovementVersion(v => v + 1) }
+  const leaveArea = () => { clearArea(); if (area || nearby.active) setReset(v => v + 1); nearby.exit() }
+  const startNearby = () => { clearArea(); setRestoreId(null); setQuery(''); nearby.locate() }
+  const updateQuery = (value: string) => { clearArea(); if (nearby.active) nearby.exit(); setQuery(value) }
+  const onArea = useCallback((next: MapArea) => { if (!query.trim() && !nearby.locating && (!nearby.active || nearby.origin)) setArea(next) }, [query, nearby.locating, nearby.active, nearby.origin])
   const onRestored = useCallback(() => setRestoreId(null), [])
   const status = nearbyStatus(nearby, snapshot, pointsLoading, permit, area)
   const mapPoints = useMemo(() => {

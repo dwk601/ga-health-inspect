@@ -483,6 +483,10 @@ textarea {
   background: var(--muted);
   font-size: 0.85rem;
 }
+.notice.location-warning {
+  border-color: var(--destructive);
+  border-inline-start-width: 4px;
+}
 .notice p {
   margin: 0 0 0.6rem;
 }
@@ -695,8 +699,12 @@ textarea {
   cursor: pointer;
   transition: background-color 150ms ease-out, border-color 150ms ease-out;
 }
-.rating-picker label:hover span {
+.rating-picker:not(:disabled) label:hover span {
   border-color: var(--action);
+}
+.rating-picker:disabled label > span {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .rating-picker input:checked + span {
   background: var(--primary);
