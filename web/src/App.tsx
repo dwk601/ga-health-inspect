@@ -1,4 +1,5 @@
 import { Component, Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { flushSync } from 'react-dom'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import type { RecordModel } from 'pocketbase'
 import { LocateFixed, Moon, Search, Sun } from 'lucide-react'
@@ -150,10 +151,10 @@ function NearbyResults({ nearby, facilities, snapshot, pointsLoading, status, re
   </>
 }
 
-function Directory({ query, setQuery, permit, setPermit, sort, setSort, snapshot, facilities, searchMessage, searching, restoreId, onRestored, select, nearby, startNearby, mapMessage, pointsLoading, retryPoints, status, area, leaveArea }: {
+function Directory({ query, setQuery, permit, setPermit, sort, setSort, snapshot, facilities, searchMessage, searching, restoreId, onRestored, select, nearby, startNearby, mapMessage, pointsLoading, retryPoints, status, area, leaveArea, skipToMap }: {
   query: string; setQuery: (value: string) => void; permit: string; setPermit: (value: string) => void; sort: string; setSort: (value: string) => void
   snapshot: Snapshot | null; facilities: Facility[]; searchMessage: string; searching: boolean; restoreId: string | null; onRestored: () => void; select: (id: string) => void
-  nearby: Nearby; startNearby: () => void; mapMessage: string; pointsLoading: boolean; retryPoints: () => void; status: ReturnType<typeof nearbyStatus>; area: boolean; leaveArea: () => void
+  nearby: Nearby; startNearby: () => void; mapMessage: string; pointsLoading: boolean; retryPoints: () => void; status: ReturnType<typeof nearbyStatus>; area: boolean; leaveArea: () => void; skipToMap: () => void
 }) {
   const local = nearby.active || area
   const choices = local ? nearby.permitChoices : snapshot?.permitChoices ?? []
@@ -168,10 +169,10 @@ function Directory({ query, setQuery, permit, setPermit, sort, setSort, snapshot
     })
   }, [nearby.facilities, sort])
   const nearButton = useRef<HTMLButtonElement>(null)
-  const chips = useRef<HTMLDivElement | null>(null)
-  const chipsRef = useCallback((node: HTMLDivElement | null) => {
-    if (!node && chips.current?.contains(document.activeElement)) document.querySelector<HTMLInputElement>('#search')?.focus()
-    chips.current = node
+  const typeFilter = useRef<HTMLDivElement | null>(null)
+  const typeFilterRef = useCallback((node: HTMLDivElement | null) => {
+    if (!node && typeFilter.current?.contains(document.activeElement)) document.querySelector<HTMLInputElement>('#search')?.focus()
+    typeFilter.current = node
   }, [])
   const focusNear = () => nearButton.current?.focus()
   const leave = () => { focusNear(); leaveArea() }
@@ -194,8 +195,12 @@ function Directory({ query, setQuery, permit, setPermit, sort, setSort, snapshot
         <div className="discovery-actions"><button ref={nearButton} className="primary near-button" onClick={nearby.locating ? nearby.exit : startNearby}><LocateFixed size={17} aria-hidden />{nearby.locating ? 'Cancel locating' : 'Near me'}</button>{(nearby.active || area) && <button onClick={leave}>All Georgia</button>}</div>
       </div>
     </div>
-    {(permitChoices.length >= 2 || permit) && <div ref={chipsRef} className="permit-chips" role="group" aria-label="Permit type">{['', ...permitChoices].map(p => <button key={p} aria-pressed={permit === p} onClick={() => setPermit(p)}>{p || 'All types'}</button>)}</div>}
-    <div className="results-heading"><span role={local ? undefined : 'status'}>{area ? 'Places in this map area' : nearby.active ? 'Nearby places' : searchMessage ? 'Search unavailable' : resultSummary(facilities.length, searching, sort)}</span><label htmlFor="sort">Sort</label><select id="sort" value={sort} onChange={e => setSort(e.target.value)}><option value="">{area ? 'Default' : nearby.active ? 'Nearest' : query.trim() ? 'Best match' : 'Name'}</option><option value="score-desc">Highest score</option><option value="score-asc">Lowest score</option></select></div>
+    <div className="list-filters">
+      {(permitChoices.length >= 2 || permit) && <div ref={typeFilterRef} className={permit ? 'filtered' : undefined}><label htmlFor="permit">Type</label><select id="permit" value={permit} onChange={e => setPermit(e.target.value)}><option value="">All types</option>{permitChoices.map(p => <option key={p} value={p}>{p}</option>)}</select></div>}
+      <div><label htmlFor="sort">Sort</label><select id="sort" value={sort} onChange={e => setSort(e.target.value)}><option value="">{area ? 'Default' : nearby.active ? 'Nearest' : query.trim() ? 'Best match' : 'Name'}</option><option value="score-desc">Highest score</option><option value="score-asc">Lowest score</option></select></div>
+    </div>
+    <div className="results-heading"><span role={local ? undefined : 'status'}>{area ? 'Places in this map area' : nearby.active ? 'Nearby places' : searchMessage ? 'Search unavailable' : resultSummary(facilities.length, searching, sort)}</span></div>
+    {hasList && <button className="skip-link" onClick={skipToMap}>Skip to map</button>}
     {local && sort && <p className="directory-notice">Score sorting reorders the shown places only.</p>}
     {(nearby.active || area) && snapshot && mapMessage && <p className="directory-notice">{mapMessage}</p>}
     {nearby.active || area ? <NearbyResults area={area} nearby={nearby} facilities={displayed} snapshot={snapshot} pointsLoading={pointsLoading} status={status} restoreId={restoreId} onRestored={onRestored} select={select} startNearby={startNearby} leave={leave} retryPoints={retryPoints} focusNear={focusNear} /> : searchMessage ? <p className="empty" role="alert">{searchMessage}</p> : searching && !facilities.length ? null : <FacilityList facilities={facilities} restoreId={restoreId} onRestored={onRestored} onSelect={select} />}
@@ -260,6 +265,7 @@ export default function App() {
   const mapNearRef = useRef<HTMLButtonElement>(null)
   const accountRef = useRef<HTMLButtonElement>(null)
   const retryMapImport = () => { mapRef.current?.focus(); setLazyMapView(createMapView()); setMapAttempt(n => n + 1) }
+  const skipToMap = () => { if (isMobile) flushSync(() => setMobileMap(true)); mapNearRef.current?.focus() }
   const closeAuth = () => { setAuth(false); requestAnimationFrame(() => accountRef.current?.focus()) }
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const stored = localStorage.getItem('theme')
@@ -318,7 +324,7 @@ export default function App() {
     <main className="workspace">
       <aside className={`sidebar ${mobileMap ? 'mobile-hidden' : ''}`}>
         {selected ? <FacilityDetail key={selected} id={selected} mapped={snapshot ? !!selectedPoint : undefined} coordinates={snapshot ? selectedPoint?.coordinates ?? null : undefined} origin={nearby.origin} retryMap={!snapshot && !pointsLoading ? retryPoints : null} nearby={nearby.active} onClose={() => select(null)} user={user} detail={currentDetail?.detail ?? null} error={currentDetail?.error ?? ''} load={loadDetail} onSignIn={() => setAuth(true)} /> :
-          <Directory area={!!area} leaveArea={leaveArea} query={query} setQuery={updateQuery} permit={permit} setPermit={setPermit} sort={sort} setSort={setSort} snapshot={snapshot} facilities={facilities} searchMessage={searchMessage} searching={searching} restoreId={restoreId} onRestored={onRestored} select={select} nearby={nearby} startNearby={startNearby} mapMessage={mapMessage} pointsLoading={pointsLoading} retryPoints={retryPoints} status={status} />}
+          <Directory area={!!area} leaveArea={leaveArea} query={query} setQuery={updateQuery} permit={permit} setPermit={setPermit} sort={sort} setSort={setSort} snapshot={snapshot} facilities={facilities} searchMessage={searchMessage} searching={searching} restoreId={restoreId} onRestored={onRestored} select={select} nearby={nearby} startNearby={startNearby} mapMessage={mapMessage} pointsLoading={pointsLoading} retryPoints={retryPoints} status={status} skipToMap={skipToMap} />}
       </aside>
       <div ref={mapRef} tabIndex={-1} className={`map-panel ${mobileMap ? '' : 'mobile-hidden'}`}>
         {mapMessage && (!nearby.active || (!!snapshot && mapSurface)) && <div className="map-notices"><p className="map-message" role="status">{mapMessage}</p></div>}

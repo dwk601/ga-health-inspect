@@ -4,47 +4,50 @@
 
 :root {
   --background: #fff;
-  --foreground: #20323e;
-  --primary: #164d78;
+  --foreground: #0a0a0a;
+  --primary: #171717;
   --primary-foreground: #fff;
-  --muted: #e9f2f8;
-  --muted-foreground: #526a7a;
-  --border: #d4e1e9;
+  --muted: #f5f5f5;
+  --muted-foreground: #525252;
+  --border: #e5e5e5;
+  --control-border: #c7c7c7;
   --card: #fff;
-  --card-foreground: #20323e;
+  --card-foreground: #0a0a0a;
   --popover: #fff;
-  --popover-foreground: #20323e;
-  --accent: #e9f2f8;
-  --accent-foreground: #20323e;
-  --ring: #164d78;
-  --input: #d4e1e9;
-  --destructive: #b42318;
+  --popover-foreground: #0a0a0a;
+  --accent: #f5f5f5;
+  --accent-foreground: #0a0a0a;
+  --ring: #404040;
+  --input: #e5e5e5;
+  --destructive: #b91c1c;
   --radius: 0.5rem;
-  --action: #164d78;
-  --action-hover: #226693;
-  --focus: #3386bd;
-  --shadow: 0 4px 18px color-mix(in srgb, var(--foreground) 15%, transparent);
+  --action: #171717;
+  --action-hover: #404040;
+  --focus: #404040;
+  --shadow: 0 4px 18px rgb(0 0 0 / 8%);
 }
 .dark {
-  --background: #102332;
-  --foreground: #edf5fa;
-  --primary: #a3d5f4;
-  --primary-foreground: #102332;
-  --muted: #203b4f;
-  --muted-foreground: #bad0df;
-  --border: #38576b;
-  --card: #173043;
-  --card-foreground: #edf5fa;
-  --popover: #173043;
-  --popover-foreground: #edf5fa;
-  --accent: #203b4f;
-  --accent-foreground: #edf5fa;
-  --ring: #a3d5f4;
-  --input: #38576b;
-  --action: #a3d5f4;
-  --action-hover: #c6e8fb;
-  --focus: #a3d5f4;
-  --shadow: 0 4px 18px rgb(0 0 0 / 35%);
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+  --primary: #fafafa;
+  --primary-foreground: #0a0a0a;
+  --muted: #262626;
+  --muted-foreground: #a3a3a3;
+  --border: #2e2e2e;
+  --control-border: #474747;
+  --card: #171717;
+  --card-foreground: #fafafa;
+  --popover: #171717;
+  --popover-foreground: #fafafa;
+  --accent: #262626;
+  --accent-foreground: #fafafa;
+  --ring: #d4d4d4;
+  --input: #2e2e2e;
+  --destructive: #f87171;
+  --action: #fafafa;
+  --action-hover: #d4d4d4;
+  --focus: #d4d4d4;
+  --shadow: 0 4px 18px rgb(0 0 0 / 50%);
 }
 @theme inline {
   --color-background: var(--background);
@@ -119,7 +122,7 @@ summary {
 @layer base {
   :where(.topbar, .sidebar, .mobile-switch, .auth-panel, .map-failure) button {
     min-height: 44px;
-    border: 1px solid var(--border);
+    border: 1px solid var(--control-border);
     border-radius: 7px;
     background: var(--card);
     color: var(--foreground);
@@ -130,6 +133,7 @@ summary {
   }
   :where(.topbar, .sidebar, .mobile-switch, .auth-panel, .map-failure) button:hover {
     background: var(--muted);
+    border-color: var(--muted-foreground);
   }
   :where(.topbar, .sidebar, .auth-panel) button:is([aria-disabled="true"], :disabled) {
     opacity: 0.7;
@@ -142,6 +146,11 @@ a {
 }
 p {
   line-height: 1.5;
+}
+h1,
+h2,
+h3 {
+  font-weight: 650;
 }
 .muted {
   color: var(--muted-foreground);
@@ -269,10 +278,11 @@ p {
 .discovery-intro { margin: 0 0 .2rem; color: var(--muted-foreground); font-size: .85rem; }
 .discovery-actions { display: flex; gap: .5rem; }
 .sidebar .near-button { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-height: 44px; }
-.permit-chips { display: flex; flex-wrap: wrap; gap: .4rem; padding: .5rem 1.25rem; }
-.sidebar .permit-chips button { flex: none; min-height: 36px; padding: .3rem .7rem; border-radius: 999px; font-size: .8rem; }
-@media (max-width: 720px) { .sidebar .permit-chips button { min-height: 44px; } }
-.sidebar .permit-chips button[aria-pressed="true"] { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+.list-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .6rem; padding: 0 1.25rem 1rem; background: var(--card); }
+.list-filters label { margin: 0 0 .3rem; color: var(--muted-foreground); font-size: .75rem; }
+.list-filters select { margin: 0; min-height: 44px; padding: .5rem .6rem; font-size: .875rem; text-overflow: ellipsis; }
+.list-filters .filtered select { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+@media (max-width: 720px) { .list-filters select { font-size: 1rem; } }
 .search-field {
   position: relative;
 }
@@ -328,6 +338,8 @@ textarea::placeholder {
 textarea {
   resize: vertical;
 }
+.sidebar .skip-link { display: block; margin: .5rem 1.25rem; background: var(--action); color: var(--primary-foreground); border-color: var(--action); }
+.sidebar .skip-link:not(:focus) { position: absolute; width: 1px; height: 1px; min-height: 0; margin: 0; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .results-heading {
   display: flex;
   align-items: center;
@@ -339,10 +351,6 @@ textarea {
   font-size: 0.75rem;
   font-weight: 600;
 }
-.results-heading > span { margin-right: auto; }
-.results-heading label { margin: 0 .4rem 0 .75rem; }
-.results-heading select { width: auto; margin: 0; padding: .35rem .45rem; font-size: .8rem; min-height: 36px; }
-@media (max-width: 720px) { .results-heading select { min-height: 44px; font-size: 1rem; } }
 .facility-list,
 .contributions,
 .inspection-history ol {
@@ -451,12 +459,12 @@ textarea {
 }
 .nearby-map-status { position: absolute; z-index: 2; left: 1rem; bottom: 3.5rem; width: min(19rem, calc(100% - 5rem)); max-height: 40%; overflow: auto; font-size: .875rem; }
 .nearby-map-status p { margin: 0; }
-.nearby-map-status button { min-height: 44px; margin: .5rem .5rem 0 0; padding: .5rem .75rem; border: 1px solid var(--border); border-radius: 7px; background: var(--card); color: var(--foreground); font-weight: 600; }
-.map-near { position: absolute; z-index: 2; top: 1rem; right: 1rem; display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-height: 44px; padding: .6rem .9rem; border: 1px solid var(--border); border-radius: 9px; background: var(--card); color: var(--foreground); box-shadow: var(--shadow); font-weight: 650; }
+.nearby-map-status button { min-height: 44px; margin: .5rem .5rem 0 0; padding: .5rem .75rem; border: 1px solid var(--control-border); border-radius: 7px; background: var(--card); color: var(--foreground); font-weight: 600; }
+.map-near { position: absolute; z-index: 2; top: 1rem; right: 1rem; display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-height: 44px; padding: .6rem .9rem; border: 1px solid var(--control-border); border-radius: 9px; background: var(--card); color: var(--foreground); box-shadow: var(--shadow); font-weight: 650; }
 .maplibregl-marker:has(.origin-marker) { z-index: 1; }
 .origin-marker { display: inline-flex; align-items: center; gap: .25rem; padding: .3rem .5rem; background: var(--card); border: 2px solid var(--primary); border-radius: 6px; color: var(--foreground); white-space: nowrap; font-size: .75rem; font-weight: 700; box-shadow: var(--shadow); }
 .map-popup {
-  padding-right: 1rem;
+  padding-right: 2rem;
 }
 .map-popup p {
   font-size: 0.8rem;
@@ -489,7 +497,7 @@ textarea {
 }
 .notice.location-warning {
   border-color: var(--destructive);
-  border-inline-start-width: 4px;
+  background: color-mix(in srgb, var(--destructive) 8%, var(--card));
 }
 .notice p {
   margin: 0 0 0.6rem;
@@ -507,7 +515,7 @@ textarea {
   text-decoration: underline;
   text-underline-offset: 0.18em;
 }
-.detail-title h2 {
+.detail-title h1 {
   font-size: 1.5rem;
   line-height: 1.2;
   margin: 0;
@@ -519,7 +527,7 @@ textarea {
   color: var(--muted-foreground);
   margin: 0.4rem 0 0;
 }
-.sidebar .community-jump { display: inline-flex; margin-top: 1rem; min-height: 44px; align-items: center; border-color: var(--border); color: var(--primary); font-weight: 700; }
+.sidebar .community-jump { display: inline-flex; margin-top: 1rem; min-height: 44px; align-items: center; border-color: var(--control-border); color: var(--primary); font-weight: 700; }
 .contact-links {
   display: flex;
   flex-wrap: wrap;
@@ -568,11 +576,11 @@ textarea {
   color: var(--primary);
   font-variant-numeric: tabular-nums;
 }
-.detail h3 {
+.detail h2 {
   font-size: 1.05rem;
   margin: 2rem 0 0.5rem;
 }
-.detail h4 {
+.detail h3 {
   display: flex;
   align-items: center;
   gap: 0.45rem;
@@ -928,7 +936,7 @@ textarea {
   .results-heading { padding-left: 0.8rem; }
   .sidebar .facility-row { margin: .5rem .8rem; width: calc(100% - 1.6rem); padding: 1rem; border: 1px solid var(--border); border-radius: 12px; }
   .nearby-description, .directory-notice, .nearby-status { padding-inline: .8rem; }
-  .permit-chips { padding-inline: .8rem; }
+  .list-filters { padding-inline: .8rem; }
   .detail {
     padding-inline: 0.8rem;
   }

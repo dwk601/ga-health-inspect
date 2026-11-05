@@ -102,7 +102,7 @@ function SelectedLocation({ selected, point }: { selected: string | null; point:
   return null
 }
 
-const clusterColors: [string, string, string] = ['#3386bd', '#226693', '#164d78']
+const clusterColors: Record<'light' | 'dark', [string, string, string]> = { light: ['#404040', '#2b2b2b', '#171717'], dark: ['#666666', '#5a5a5a', '#4d4d4d'] }
 const key = import.meta.env.VITE_CARTO_KEY as string | undefined
 function transformRequest(url: string) {
   if (key) {
@@ -132,7 +132,7 @@ export function MapView({ selectedPoint: point, statewidePoints, fitPoints, read
     <MapLoadMonitor onLoaded={onLoaded} onFailure={onFailure} />
     <AreaMovement onArea={onArea} cancelKey={cancelKey} />
     <FitView selected={selected} nearby={nearby} origin={origin} fitPoints={fitPoints} ready={ready} area={area} reset={reset} />
-    <MapClusterLayer data={data} clusterColors={clusterColors} pointColor={theme === 'dark' ? '#7cc3ee' : '#164d78'} onPointClick={feature => onSelect(feature.properties.id)} />
+    <MapClusterLayer data={data} clusterColors={clusterColors[theme]} pointColor={theme === 'dark' ? '#fafafa' : '#171717'} onPointClick={feature => onSelect(feature.properties.id)} />
     {nearby && origin && <MapMarker longitude={origin.coordinates[0]} latitude={origin.coordinates[1]}><MarkerContent className="origin-marker-container"><span className="origin-marker" role="img" aria-label="Your location"><span aria-hidden="true">◆</span> You</span></MarkerContent></MapMarker>}
     <SelectedLocation selected={selected} point={point} />
     <MapControls position="bottom-right" showZoom />
