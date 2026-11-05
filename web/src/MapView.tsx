@@ -31,13 +31,21 @@ const georgiaBounds: [[number, number], [number, number]] = [[-85.61, 30.36], [-
 function FitView({ selected, nearby, origin, fitPoints, ready, area, reset }: { selected: string | null; nearby: boolean; origin: Origin | null; fitPoints: Point[]; ready: boolean; area: boolean; reset: number }) {
   const { map, isLoaded } = useMap()
   const fitted = useRef('')
+  const fittedReset = useRef(reset)
   useEffect(() => {
     if (!map || !isLoaded) return
     const fit = () => {
       const container = map.getContainer()
       if (!container.clientWidth || !container.clientHeight) return
       map.resize()
-      if (area || (selected && !nearby)) return
+      if (area) return
+      if (!nearby && reset !== fittedReset.current) {
+        fittedReset.current = reset
+        fitted.current = `georgia-${reset}`
+        map.fitBounds(georgiaBounds, { padding: 20, duration: 0 })
+        return
+      }
+      if (selected && !nearby) return
       const target = nearby ? origin && ready ? `nearby-${origin.sequence}-${JSON.stringify(fitPoints.map(p => [p.id, ...p.coordinates]))}` : '' : `georgia-${reset}`
       if (!target || fitted.current === target) return
       fitted.current = target

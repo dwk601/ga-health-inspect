@@ -42,6 +42,7 @@ export function FacilityDetail({
   mapped,
   coordinates,
   origin,
+  retryMap,
   nearby,
   onClose,
   onSignIn,
@@ -54,6 +55,7 @@ export function FacilityDetail({
   mapped?: boolean
   coordinates: [number, number] | null | undefined
   origin: LocationFix | null
+  retryMap: (() => void) | null
   nearby: boolean
   onClose: () => void
   onSignIn: () => void
@@ -178,6 +180,7 @@ export function FacilityDetail({
             mapped={mapped}
             coordinates={coordinates}
             origin={origin}
+            retryMap={retryMap}
             user={user}
             refresh={load}
             onSignIn={onSignIn}

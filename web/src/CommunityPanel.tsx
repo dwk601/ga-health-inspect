@@ -21,7 +21,7 @@ function RatingPicker({ value, disabled }: { value: number | undefined; disabled
   </fieldset>
 }
 
-export function CommunityPanel({ facilityId, mapped, coordinates, origin, user, refresh, onSignIn }: { facilityId: string; mapped?: boolean; coordinates: [number, number] | null | undefined; origin: LocationFix | null; user: RecordModel | null; refresh: () => void; onSignIn: () => void }) {
+export function CommunityPanel({ facilityId, mapped, coordinates, origin, retryMap, user, refresh, onSignIn }: { facilityId: string; mapped?: boolean; coordinates: [number, number] | null | undefined; origin: LocationFix | null; retryMap: (() => void) | null; user: RecordModel | null; refresh: () => void; onSignIn: () => void }) {
   const [ratings, setRatings] = useState<Item[]>([]); const [comments, setComments] = useState<Item[]>([])
   const [message, setMessage] = useState(''); const [loadError, setLoadError] = useState(''); const [loaded, setLoaded] = useState(false); const [version, setVersion] = useState(0)
   const [editing, setEditing] = useState<string | null>(null)
@@ -146,7 +146,7 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, user, 
     {user?.verified ? <div className="contribute">
       <form onSubmit={e => submit(e, 'ratings')} className="compact-form">
         <p className="muted">Enable location while you're here to rate. Comments don't require location.</p>
-        <div className={`notice ${mapped === true && (eligibility.state === 'far' || eligibility.state === 'outside') ? 'location-warning' : ''}`} role="status"><p id="rating-location">{mapped === false ? 'This facility has no map location, so ratings are unavailable.' : mapped === undefined ? 'Loading map location…' : eligibility.text}</p>{mapped === true && <button type="button" onClick={() => void checkLocation()} disabled={ratingPending || eligibility.state === 'checking'}>{eligibility.state === 'unknown' ? 'Check my location' : 'Check again'}</button>}</div>
+        <div className={`notice ${mapped === true && (eligibility.state === 'far' || eligibility.state === 'outside') ? 'location-warning' : ''}`} role="status"><p id="rating-location">{mapped === false ? 'This facility has no map location, so ratings are unavailable.' : mapped === undefined ? retryMap ? "Map data is unavailable, so your location can't be checked for rating right now. You can still comment." : 'Loading map location…' : eligibility.text}</p>{mapped === undefined && retryMap && <button type="button" onClick={retryMap}>Retry map data</button>}{mapped === true && <button type="button" onClick={() => void checkLocation()} disabled={ratingPending || eligibility.state === 'checking'}>{eligibility.state === 'unknown' ? 'Check my location' : 'Check again'}</button>}</div>
         <RatingPicker key={`${user.id}-${ownRating ?? 'new'}`} value={ownRating} disabled={pickerBlocked} />
         <button className="primary" disabled={ratingPending || locationBlocked}>{ratingPending ? 'Saving…' : ownRating ? 'Update rating' : 'Save rating'}</button>
       </form>
