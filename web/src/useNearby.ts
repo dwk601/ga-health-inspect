@@ -83,10 +83,8 @@ export function useNearby(snapshot: Snapshot | null, permit: string, area: MapAr
     }, { maximumAge: 0, timeout: 10000, enableHighAccuracy: false })
   }, [])
   useEffect(() => () => { sequence.current++ }, [])
-  const ids = new Set(lookup.facilities.map(f => f.id))
   return {
     active, origin, locating, error, candidates: listCandidates, fitCandidates: candidates, areaCount: areaPoints.length, canLocate: window.isSecureContext && !!navigator.geolocation,
-    points: listCandidates.filter(c => ids.has(c.point.id)).map(c => c.point),
     distances: new Map(origin ? listCandidates.map(c => [c.point.id, distanceMiles(origin.coordinates, c.point.coordinates)]) : []),
     ...lookup,
     locate, exit,
