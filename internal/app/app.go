@@ -29,6 +29,9 @@ func Register(app core.App) {
 		}
 		e.InstallerFunc = nil
 		e.Router.BindFunc(func(e *core.RequestEvent) error {
+			if redirected := redirectPlainHTTP(e); redirected {
+				return nil
+			}
 			e.Response.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com; connect-src 'self' https://basemaps.cartocdn.com https://*.basemaps.cartocdn.com; font-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'")
 			return e.Next()
 		})
@@ -99,4 +102,24 @@ func Register(app core.App) {
 		}).Bind(apis.SkipSuccessActivityLog())
 		return e.Next()
 	})
+}
+
+// redirectPlainHTTP sends public http:// visitors to https://. Cloudflare Flexible
+// SSL connects to the origin over HTTP and sets X-Forwarded-Proto from the
+// visitor scheme, so redirecting every HTTP connection would loop. Health checks
+// call the container directly and do not set that header.
+func redirectPlainHTTP(e *core.RequestEvent) bool {
+	if e.Request.Header.Get("X-Forwarded-Proto") != "http" {
+		return false
+	}
+	switch e.Request.URL.Path {
+	case "/health", "/api/health":
+		return false
+	}
+	host := e.Request.Host
+	if host == "" {
+		return false
+	}
+	http.Redirect(e.Response, e.Request, "https://"+host+e.Request.URL.RequestURI(), http.StatusPermanentRedirect)
+	return true
 }

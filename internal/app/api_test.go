@@ -116,6 +116,52 @@ func TestManagedSettingsUpdate(t *testing.T) {
 	}
 }
 
+func TestPlainHTTPRedirect(t *testing.T) {
+	server, _ := startTestServer(t)
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	base, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		proto string
+		path  string
+		want  int
+	}{
+		{proto: "http", path: "/", want: http.StatusPermanentRedirect},
+		{proto: "http", path: "/api/health", want: http.StatusOK},
+		{proto: "https", path: "/", want: http.StatusOK},
+		{proto: "", path: "/", want: http.StatusOK},
+	}
+	for _, tc := range cases {
+		req, err := http.NewRequest(http.MethodGet, server.URL+tc.path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tc.proto != "" {
+			req.Header.Set("X-Forwarded-Proto", tc.proto)
+		}
+		res, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		if res.StatusCode != tc.want {
+			t.Fatalf("%s %s: status %d, want %d", tc.proto, tc.path, res.StatusCode, tc.want)
+		}
+		if tc.want == http.StatusPermanentRedirect {
+			got, err := res.Location()
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "https://" + base.Host + tc.path
+			if got.String() != want {
+				t.Fatalf("location %s, want %s", got, want)
+			}
+		}
+	}
+}
+
 func TestInspectionAPI(t *testing.T) {
 	database := os.Getenv("DATABASE_URL")
 	redisURL := os.Getenv("REDIS_URL")
