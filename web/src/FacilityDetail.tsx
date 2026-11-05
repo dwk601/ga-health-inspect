@@ -4,6 +4,7 @@ import { ArrowLeft, ExternalLink, MapPin, Phone } from 'lucide-react'
 import { CommunityPanel } from './CommunityPanel'
 import { formatDate } from './format'
 import type { Detail } from './types'
+import type { LocationFix } from './geolocation'
 
 function safeLink(value: string | null) {
   try {
@@ -39,6 +40,9 @@ function Contact({ facility }: { facility: Detail['facility'] }) {
 export function FacilityDetail({
   id,
   mapped,
+  coordinates,
+  origin,
+  retryMap,
   nearby,
   onClose,
   onSignIn,
@@ -49,6 +53,9 @@ export function FacilityDetail({
 }: {
   id: string
   mapped?: boolean
+  coordinates: [number, number] | null | undefined
+  origin: LocationFix | null
+  retryMap: (() => void) | null
   nearby: boolean
   onClose: () => void
   onSignIn: () => void
@@ -171,6 +178,9 @@ export function FacilityDetail({
             key={`${id}-${user?.id ?? 'anonymous'}`}
             facilityId={id}
             mapped={mapped}
+            coordinates={coordinates}
+            origin={origin}
+            retryMap={retryMap}
             user={user}
             refresh={load}
             onSignIn={onSignIn}

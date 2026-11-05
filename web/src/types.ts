@@ -1,4 +1,5 @@
 export type Facility = { id: string; name: string | null; address: string | null; phone: string | null; permitType: string | null; permitNumber: string | null; lastInspectionDate: string | null; lastInspectionScore: number | null; googlePlaces: string | null }
+export type MapArea = { bounds: [[number, number], [number, number]]; center: [number, number] }
 export type Point = { id: string; permitType: string | null; coordinates: [number, number] }
 export type Snapshot = { points: Point[]; permitChoices: string[]; generatedAt: string | null }
 export type Violation = { sourceKey: string; codeTitle: string | null; regulation: string | null; points: number | null; corrected: boolean | null; repeat: boolean | null; notes: string | null }

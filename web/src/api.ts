@@ -31,13 +31,40 @@ export async function getPoints(): Promise<{ snapshot: Snapshot; stale: boolean 
   snapshot.generatedAt = response.headers.get('X-Inspection-Generated-At') || null
   return { snapshot, stale: response.headers.get('X-Inspection-Stale') === 'true' }
 }
-export function search(q: string, permit: string, signal: AbortSignal) {
-  return get<{ facilities: Facility[] }>(`/api/inspect/search?${new URLSearchParams({ q, permit })}`, signal)
+const searchCache = new Map<string, { expires: number; data: { facilities: Facility[] } }>()
+const facilityCache = new Map<string, { expires: number; facility: Facility | null }>()
+
+export async function search(q: string, permit: string, signal: AbortSignal) {
+  const key = JSON.stringify([q, permit])
+  const cached = searchCache.get(key)
+  if (cached && cached.expires > Date.now()) return cached.data
+  const data = await get<{ facilities: Facility[] }>(`/api/inspect/search?${new URLSearchParams({ q, permit })}`, signal)
+  if (!signal.aborted) {
+    searchCache.delete(key); searchCache.set(key, { expires: Date.now() + 300000, data })
+    if (searchCache.size > 20) searchCache.delete(searchCache.keys().next().value!)
+  }
+  return data
+}
+export function cachedFacilities(ids: string[]): Facility[] | null {
+  const now = Date.now()
+  if (ids.some(id => (facilityCache.get(id)?.expires ?? 0) <= now)) return null
+  return ids.flatMap(id => { const facility = facilityCache.get(id)?.facility; return facility ? [facility] : [] })
 }
 export async function lookupFacilities(ids: string[], signal: AbortSignal) {
-  const response = await fetch('/api/inspect/facilities/lookup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }), signal })
-  if (!response.ok) throw new Error('Place details unavailable')
-  return (await response.json() as { facilities: Facility[] }).facilities
+  const missing = ids.filter(id => (facilityCache.get(id)?.expires ?? 0) <= Date.now())
+  if (missing.length) {
+    const response = await fetch('/api/inspect/facilities/lookup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: missing }), signal })
+    if (!response.ok) throw new Error('Place details unavailable')
+    const facilities = (await response.json() as { facilities: Facility[] }).facilities
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+    const byId = new Map(facilities.map(f => [f.id, f]))
+    for (const id of missing) {
+      const facility = byId.get(id) ?? null
+      facilityCache.delete(id); facilityCache.set(id, { facility, expires: Date.now() + (facility ? 300000 : 60000) })
+      if (facilityCache.size > 500) facilityCache.delete(facilityCache.keys().next().value!)
+    }
+  }
+  return ids.flatMap(id => { const facility = facilityCache.get(id)?.facility; return facility ? [facility] : [] })
 }
 export function getDetail(id: string) { return get<Detail>(`/api/inspect/facilities/${encodeURIComponent(id)}`) }
 export function errorMessage(error: unknown, action: string, restrictedRecord = false, contributionWrite = false): string {
