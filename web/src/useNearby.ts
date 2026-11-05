@@ -61,15 +61,15 @@ function useFacilityLookup(candidates: Candidate[], enabled: boolean) {
   const [lookup, setLookup] = useState<{ key: string; facilities: Facility[]; error: string } | null>(null)
   const [retryVersion, setRetryVersion] = useState(0)
   const key = JSON.stringify(candidates.map(c => c.point.id))
+  const cached = useMemo(() => enabled ? cachedFacilities(JSON.parse(key) as string[]) : null, [enabled, key])
   useEffect(() => {
-    if (!enabled || key === '[]' || cachedFacilities(JSON.parse(key) as string[]) !== null) return
+    if (!enabled || key === '[]' || cached !== null) return
     const controller = new AbortController()
     lookupFacilities(JSON.parse(key) as string[], controller.signal).then(facilities => {
       if (!controller.signal.aborted) setLookup({ key, facilities, error: '' })
     }).catch(() => { if (!controller.signal.aborted) setLookup({ key, facilities: [], error: 'Place details are unavailable. Try again.' }) })
     return () => controller.abort()
-  }, [enabled, key, retryVersion])
-  const cached = enabled ? cachedFacilities(candidates.map(c => c.point.id)) : null
+  }, [enabled, key, retryVersion, cached])
   const current = cached !== null ? { facilities: cached, error: '' } : lookup?.key === key ? lookup : null
   return { facilities: current?.facilities ?? [], loading: enabled && !!candidates.length && !current, lookupError: current?.error ?? '', missing: current && !current.error ? candidates.length - current.facilities.length : 0, retry: () => { setLookup(null); setRetryVersion(v => v + 1) } }
 }

@@ -26,7 +26,6 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, user, 
   const [message, setMessage] = useState(''); const [loadError, setLoadError] = useState(''); const [loaded, setLoaded] = useState(false); const [version, setVersion] = useState(0)
   const [editing, setEditing] = useState<string | null>(null)
   const [ratingPending, setRatingPending] = useState(false); const [commentPending, setCommentPending] = useState(false)
-  const [checkingLocation, setCheckingLocation] = useState(false)
   const generation = useRef(0)
   const locationRequest = useRef(0)
   const [eligibility, setEligibility] = useState<Eligibility>(unknownLocation)
@@ -91,10 +90,9 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, user, 
       let location = {}
       if (kind === 'ratings') {
         locationRequest.current++
-        setCheckingLocation(true); setEligibility({ state: 'checking', text: 'Checking location…' }); setMessage('')
+        setEligibility({ state: 'checking', text: 'Checking location…' }); setMessage('')
         const fix = await getPreciseLocation()
         if (generation.current !== current) return
-        setCheckingLocation(false)
         const result = assess(fix, true)
         setEligibility(result)
         if (result.state !== 'eligible') return
@@ -110,7 +108,7 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, user, 
       if (kind === 'ratings' && !(error instanceof ClientResponseError)) {
         setEligibility({ state: 'unavailable', text: locationError(error) })
       } else { setMessage(errorMessage(error, kind === 'ratings' ? 'save your rating' : 'post your comment', kind === 'ratings' && !!own, true)); void refreshAuth() }
-    } finally { if (generation.current === current) { pending(false); if (kind === 'ratings') setCheckingLocation(false) } }
+    } finally { if (generation.current === current) pending(false) }
   }
   async function remove(kind: 'ratings' | 'comments', item: Item) {
     if (!window.confirm(`Remove this ${kind === 'ratings' ? 'rating' : 'comment'}?`)) return
@@ -137,7 +135,8 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, user, 
   }
   const canRemove = (item: Item) => !!user && (item.owner === user.id || user.role === 'moderator' || user.role === 'admin')
   const ownRating = ratings.find(r => r.owner === user?.id)?.rating
-  const locationBlocked = mapped !== true || ['far', 'outside', 'checking'].includes(eligibility.state)
+  const pickerBlocked = mapped !== true || eligibility.state === 'far' || eligibility.state === 'outside'
+  const locationBlocked = pickerBlocked || eligibility.state === 'checking'
   const byline = (item: Item) => <span className="byline"><strong>{item.authorName}</strong><time dateTime={item.created}>{postedDate.format(new Date(item.created.replace(' ', 'T')))}</time></span>
   const adminId = (item: Item) => user?.role === 'admin' && <small>User ID: {item.owner}</small>
 
@@ -148,7 +147,7 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, user, 
       <form onSubmit={e => submit(e, 'ratings')} className="compact-form">
         <p className="muted">Enable location while you're here to rate. Comments don't require location.</p>
         <div className={`notice ${mapped === true && (eligibility.state === 'far' || eligibility.state === 'outside') ? 'location-warning' : ''}`} role="status"><p id="rating-location">{mapped === false ? 'This facility has no map location, so ratings are unavailable.' : mapped === undefined ? 'Loading map location…' : eligibility.text}</p>{mapped === true && <button type="button" onClick={() => void checkLocation()} disabled={ratingPending || eligibility.state === 'checking'}>{eligibility.state === 'unknown' ? 'Check my location' : 'Check again'}</button>}</div>
-        <RatingPicker key={`${user.id}-${ownRating ?? 'new'}`} value={ownRating} disabled={locationBlocked} />
+        <RatingPicker key={`${user.id}-${ownRating ?? 'new'}`} value={ownRating} disabled={pickerBlocked} />
         <button className="primary" disabled={ratingPending || locationBlocked}>{ratingPending ? 'Saving…' : ownRating ? 'Update rating' : 'Save rating'}</button>
       </form>
       <form className="comment-composer" onSubmit={e => submit(e, 'comments')}>
@@ -158,7 +157,7 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, user, 
     </div> : <div className="notice contribute-prompt">{user
       ? <p>Verify your email to post a rating or comment. Ratings require being at the place. <button className="text-button" onClick={resendVerification}>Resend verification email</button></p>
       : <><p>Sign in with a verified email to rate this place or leave a comment. Ratings require being at the place.</p><button onClick={onSignIn}>Sign in to contribute</button></>}</div>}
-    <p role="status" className="form-status">{message || (checkingLocation ? 'Checking location…' : loadError || (!loaded ? 'Loading visitor contributions…' : ''))}</p>
+    <p role="status" className="form-status">{message || loadError || (!loaded ? 'Loading visitor contributions…' : '')}</p>
 
     <h4>Ratings{ratings.length > 0 && <span className="count">{ratings.length}</span>}</h4>
     {loaded && ratings.length === 0 && <p className="muted">No ratings yet.</p>}
