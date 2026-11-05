@@ -1,7 +1,7 @@
 import { Component, Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import type { RecordModel } from 'pocketbase'
-import { LocateFixed, MapPinned, Moon, Search, Sun } from 'lucide-react'
+import { LocateFixed, Moon, Search, Sun } from 'lucide-react'
 import { LIST_LIMIT, useNearby } from './useNearby'
 import { pb, getPoints, getDetail, search, refreshAuth } from './api'
 import { MapFailure } from './MapFailure'
@@ -71,14 +71,21 @@ function useStatewideSearch(query: string, permit: string, sort: string, paused:
   return { facilities, searchMessage, searching }
 }
 
+function BrandMark() {
+  return <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true">
+    <mask id="brand-mark-check"><rect width="24" height="24" fill="#fff" /><path d="m8.6 9.6 2.4 2.4 4.4-4.6" fill="none" stroke="#000" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></mask>
+    <path mask="url(#brand-mark-check)" fill="currentColor" d="M12 1.75a7.75 7.75 0 0 0-7.75 7.75c0 5.6 6.4 11.9 7.05 12.53a1 1 0 0 0 1.4 0c.65-.63 7.05-6.93 7.05-12.53A7.75 7.75 0 0 0 12 1.75Z" />
+  </svg>
+}
+
 function Header({ theme, toggleTheme, user, auth, setAuth, home, accountRef }: {
   theme: 'light' | 'dark'; toggleTheme: () => void; user: RecordModel | null
   auth: boolean; setAuth: (value: boolean) => void; home: () => void; accountRef: React.RefObject<HTMLButtonElement | null>
 }) {
   return <header className="topbar">
     <a href="/" className="brand" onClick={e => { e.preventDefault(); home() }}>
-      <span className="brand-icon"><MapPinned size={21} /></span>
-      <span>Georgia <b>Inspection Map</b><small>Health inspections and visitor reviews</small></span>
+      <span className="brand-icon"><BrandMark /></span>
+      <span>GA <b>Inspect</b><small>by gongu</small></span>
     </a>
     <div className="header-actions">
       <button className="icon-button" onClick={toggleTheme} aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}</button>

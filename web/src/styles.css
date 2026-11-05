@@ -187,8 +187,8 @@ p {
   display: grid;
   flex: none;
   place-items: center;
-  background: var(--primary);
-  color: var(--primary-foreground);
+  background: var(--foreground);
+  color: var(--background);
   border-radius: 9px;
   width: 38px;
   height: 38px;

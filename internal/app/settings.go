@@ -17,7 +17,7 @@ func configureSettings(app core.App) error {
 	s := app.Settings()
 	s.Meta.AppName = os.Getenv("APP_NAME")
 	if s.Meta.AppName == "" {
-		s.Meta.AppName = "GA Health Inspect"
+		s.Meta.AppName = "GA Inspect"
 	}
 	if v := os.Getenv("APP_URL"); v != "" {
 		s.Meta.AppURL = v
