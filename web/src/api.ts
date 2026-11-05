@@ -34,11 +34,11 @@ export async function getPoints(): Promise<{ snapshot: Snapshot; stale: boolean 
 const searchCache = new Map<string, { expires: number; data: { facilities: Facility[] } }>()
 const facilityCache = new Map<string, { expires: number; facility: Facility | null }>()
 
-export async function search(q: string, permit: string, signal: AbortSignal) {
-  const key = JSON.stringify([q, permit])
+export async function search(q: string, permit: string, sort: string, signal: AbortSignal) {
+  const key = JSON.stringify([q, permit, sort])
   const cached = searchCache.get(key)
   if (cached && cached.expires > Date.now()) return cached.data
-  const data = await get<{ facilities: Facility[] }>(`/api/inspect/search?${new URLSearchParams({ q, permit })}`, signal)
+  const data = await get<{ facilities: Facility[] }>(`/api/inspect/search?${new URLSearchParams({ q, permit, sort })}`, signal)
   if (!signal.aborted) {
     searchCache.delete(key); searchCache.set(key, { expires: Date.now() + 300000, data })
     if (searchCache.size > 20) searchCache.delete(searchCache.keys().next().value!)

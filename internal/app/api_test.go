@@ -329,10 +329,26 @@ func TestInspectionAPI(t *testing.T) {
 	if code != 304 || len(notModified) != 0 {
 		t.Fatal("conditional response")
 	}
-	for _, path := range []string{"/api/inspect/search?q=%00", "/api/inspect/search?permit=%FF", "/api/inspect/facilities/%00", "/api/inspect/facilities/%FF"} {
+	for _, path := range []string{"/api/inspect/search?sort=bogus", "/api/inspect/search?q=%00", "/api/inspect/search?permit=%FF", "/api/inspect/facilities/%00", "/api/inspect/facilities/%FF"} {
 		code, _, _ := request(server, path, nil)
 		if code != 400 {
 			t.Fatalf("invalid input %s: %d", path, code)
+		}
+	}
+	for _, tc := range []struct{ query, id, place string }{
+		{"q=" + url.QueryEscape("peach & pie"), "pin", "Peach & Pie Diner"},
+		{"q=Example&sort=score-asc", "zero", ""},
+		{"q=Example&sort=score-desc", "pin", "Peach & Pie Diner"},
+	} {
+		code, _, body := request(server, "/api/inspect/search?"+tc.query, nil)
+		var result struct {
+			Facilities []struct {
+				ID        string  `json:"id"`
+				PlaceName *string `json:"placeName"`
+			} `json:"facilities"`
+		}
+		if err := json.Unmarshal(body, &result); code != 200 || err != nil || len(result.Facilities) == 0 || result.Facilities[0].ID != tc.id || (tc.place != "" && (result.Facilities[0].PlaceName == nil || *result.Facilities[0].PlaceName != tc.place)) {
+			t.Errorf("search %s: %d %s", tc.query, code, body)
 		}
 	}
 	code, _, search := request(server, "/api/inspect/search?q=Missing", nil)
@@ -348,6 +364,30 @@ func TestInspectionAPI(t *testing.T) {
 		}
 		if err := json.Unmarshal(body, &result); code != 200 || err != nil || len(result.Facilities) != 1 || result.Facilities[0].ID != "123456789012345678" {
 			t.Fatalf("literal search %q: %d %s", query, code, body)
+		}
+	}
+	for _, segment := range []string{`33.7°N 84.3°W`, `33.7490° N, 84.3880° W`, `33°44'56.4"N 84°23'16.8"W`} {
+		_, err := admin.Exec(ctx, `INSERT INTO public.facilities (source_id, raw, google_places) VALUES ('coordinate-test', '{}', $1)`, "https://maps.example/maps/place/"+url.QueryEscape(segment)+"/rest")
+		if err != nil {
+			t.Fatal(err)
+		}
+		code, _, body := request(server, "/api/inspect/facilities/coordinate-test", nil)
+		// 33 is a digit run in every normalized segment; a place-only match would return the row.
+		searchCode, _, searchBody := request(server, "/api/inspect/search?q=33", nil)
+		_, deleteErr := admin.Exec(ctx, `DELETE FROM public.facilities WHERE source_id='coordinate-test'`)
+		if deleteErr != nil {
+			t.Fatal(deleteErr)
+		}
+		var result struct {
+			Facility struct {
+				PlaceName *string `json:"placeName"`
+			} `json:"facility"`
+		}
+		if err := json.Unmarshal(body, &result); code != 200 || err != nil || result.Facility.PlaceName != nil {
+			t.Errorf("coordinate place name %q: %d %s", segment, code, body)
+		}
+		if searchCode != 200 || strings.Contains(string(searchBody), `"id":"coordinate-test"`) {
+			t.Errorf("coordinate place %q search: %d %s", segment, searchCode, searchBody)
 		}
 	}
 	code, h, detail := request(server, "/api/inspect/facilities/pin", nil)

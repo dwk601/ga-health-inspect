@@ -3,6 +3,7 @@ import type { RecordModel } from 'pocketbase'
 import { ArrowLeft, ExternalLink, MapPin, Phone } from 'lucide-react'
 import { CommunityPanel } from './CommunityPanel'
 import { formatDate } from './format'
+import { facilityTitle, officialName } from './facilityName'
 import type { Detail } from './types'
 import type { LocationFix } from './geolocation'
 
@@ -85,8 +86,9 @@ export function FacilityDetail({
         <>
           <header className="detail-title">
             <h2 tabIndex={-1} ref={focusHeading}>
-              {facility.name || 'Unnamed facility'}
+              {facilityTitle(facility)}
             </h2>
+            {officialName(facility) && <p>Listed as {officialName(facility)}</p>}
             <p>
               {[facility.permitType, facility.address || 'Address unavailable']
                 .filter(Boolean)

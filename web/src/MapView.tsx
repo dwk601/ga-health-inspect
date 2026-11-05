@@ -4,6 +4,7 @@ import type { ErrorEvent as MapErrorEvent } from 'maplibre-gl'
 import type { Facility, MapArea, Point } from './types'
 import type { Origin } from './useNearby'
 import { MapFailure } from './MapFailure'
+import { facilityTitle, officialName } from './facilityName'
 
 class MapErrorBoundary extends Component<{ children: ReactNode; onRetry: () => void }, { failed: boolean }> {
   state = { failed: false }
@@ -135,6 +136,6 @@ export function MapView({ selectedPoint: point, statewidePoints, fitPoints, read
     {nearby && origin && <MapMarker longitude={origin.coordinates[0]} latitude={origin.coordinates[1]}><MarkerContent className="origin-marker-container"><span className="origin-marker" role="img" aria-label="Your location"><span aria-hidden="true">◆</span> You</span></MarkerContent></MapMarker>}
     <SelectedLocation selected={selected} point={point} />
     <MapControls position="bottom-right" showZoom />
-    {point && <MapPopup longitude={point.coordinates[0]} latitude={point.coordinates[1]} onClose={() => onSelect(null)} closeButton closeOnClick={false} focusAfterOpen={false}><div className="map-popup">{detail ? <><strong>{detail.name || 'Unnamed facility'}</strong><p>Inspection score: {detail.lastInspectionScore ?? 'Not available'}</p></> : <p>{detailError ? 'Facility details unavailable.' : 'Loading facility…'}</p>}</div></MapPopup>}
+    {point && <MapPopup longitude={point.coordinates[0]} latitude={point.coordinates[1]} onClose={() => onSelect(null)} closeButton closeOnClick={false} focusAfterOpen={false}><div className="map-popup">{detail ? <><strong>{facilityTitle(detail)}</strong>{officialName(detail) && <p>Listed as {officialName(detail)}</p>}<p>Inspection score: {detail.lastInspectionScore ?? 'Not available'}</p></> : <p>{detailError ? 'Facility details unavailable.' : 'Loading facility…'}</p>}</div></MapPopup>}
   </Map>}</MapErrorBoundary></section>
 }
