@@ -1,6 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { ClientResponseError, type RecordModel } from 'pocketbase'
 import { pb, errorMessage, refreshAuth } from './api'
+import { geolocationFailureMessage } from './geolocation'
 import type { Contribution } from './types'
 
 type Item = Contribution & RecordModel
@@ -14,11 +15,14 @@ function RatingPicker({ value }: { value: number | undefined }) {
   </fieldset>
 }
 
-export function CommunityPanel({ facilityId, user, refresh, onSignIn }: { facilityId: string; user: RecordModel | null; refresh: () => void; onSignIn: () => void }) {
+export function CommunityPanel({ facilityId, mapped, user, refresh, onSignIn }: { facilityId: string; mapped?: boolean; user: RecordModel | null; refresh: () => void; onSignIn: () => void }) {
   const [ratings, setRatings] = useState<Item[]>([]); const [comments, setComments] = useState<Item[]>([])
   const [message, setMessage] = useState(''); const [loadError, setLoadError] = useState(''); const [loaded, setLoaded] = useState(false); const [version, setVersion] = useState(0)
   const [editing, setEditing] = useState<string | null>(null)
-  const [pending, setPending] = useState(false)
+  const [ratingPending, setRatingPending] = useState(false); const [commentPending, setCommentPending] = useState(false)
+  const [checkingLocation, setCheckingLocation] = useState(false)
+  const generation = useRef(0)
+  useEffect(() => { generation.current++; return () => { generation.current++ } }, [facilityId, user?.id])
   useEffect(() => {
     let active = true
     const filter = pb.filter('facility_id = {:id}', { id: facilityId })
@@ -31,13 +35,33 @@ export function CommunityPanel({ facilityId, user, refresh, onSignIn }: { facili
     const own = ratings.find(r => r.owner === user?.id)
     const body = String(data.get('body') ?? '').trim()
     if (kind === 'comments' && !visibleText.test(body)) { setMessage("Comment can't be blank."); return }
-    setPending(true)
+    if (kind === 'ratings' && mapped === false) return
+    const current = generation.current
+    const pending = kind === 'ratings' ? setRatingPending : setCommentPending
+    pending(true)
     try {
-      if (kind === 'ratings' && own) await pb.collection(kind).update(own.id, { rating: Number(data.get('rating')) })
-      else await pb.collection(kind).create({ owner: user?.id, facility_id: facilityId, ...(kind === 'ratings' ? { rating: Number(data.get('rating')) } : { body }) })
+      let location = {}
+      if (kind === 'ratings') {
+        setCheckingLocation(true); setMessage('')
+        if (!window.isSecureContext) throw new Error('Location requires a secure connection. Open this site over HTTPS and try again.')
+        if (!navigator.geolocation) throw new Error('This browser does not support location.')
+        const position = await new Promise<GeolocationPosition>((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }))
+        if (generation.current !== current) return
+        setCheckingLocation(false)
+        location = { latitude: position.coords.latitude, longitude: position.coords.longitude, accuracy: position.coords.accuracy }
+      }
+      if (kind === 'ratings' && own) await pb.collection(kind).update(own.id, { rating: Number(data.get('rating')), ...location })
+      else await pb.collection(kind).create({ owner: user?.id, facility_id: facilityId, ...(kind === 'ratings' ? { rating: Number(data.get('rating')), ...location } : { body }) })
+      if (generation.current !== current) return
       if (kind === 'comments') form.reset()
       setMessage(kind === 'ratings' ? 'Rating saved.' : 'Comment posted.'); updated()
-    } catch (error) { setMessage(errorMessage(error, kind === 'ratings' ? 'save your rating' : 'post your comment', kind === 'ratings' && !!own, true)); void refreshAuth() } finally { setPending(false) }
+    } catch (error) {
+      if (generation.current !== current) return
+      if (kind === 'ratings' && !(error instanceof ClientResponseError)) {
+        const code = typeof error === 'object' && error && 'code' in error ? error.code : undefined
+        setMessage(error instanceof Error ? error.message : geolocationFailureMessage(code))
+      } else { setMessage(errorMessage(error, kind === 'ratings' ? 'save your rating' : 'post your comment', kind === 'ratings' && !!own, true)); void refreshAuth() }
+    } finally { if (generation.current === current) { pending(false); if (kind === 'ratings') setCheckingLocation(false) } }
   }
   async function remove(kind: 'ratings' | 'comments', item: Item) {
     if (!window.confirm(`Remove this ${kind === 'ratings' ? 'rating' : 'comment'}?`)) return
@@ -72,17 +96,19 @@ export function CommunityPanel({ facilityId, user, refresh, onSignIn }: { facili
     <p className="muted">Visitor ratings reflect personal experiences. They are not a safety score.</p>
     {user?.verified ? <div className="contribute">
       <form onSubmit={e => submit(e, 'ratings')} className="compact-form">
+        <p className="muted">Enable location while you're here to rate. Comments don't require location.</p>
+        {mapped === false && <p className="muted">This facility has no map location, so ratings are unavailable.</p>}
         <RatingPicker key={`${user.id}-${ownRating ?? 'new'}`} value={ownRating} />
-        <button className="primary" disabled={pending}>{pending ? 'Saving…' : ownRating ? 'Update rating' : 'Save rating'}</button>
+        <button className="primary" disabled={ratingPending || mapped === false}>{ratingPending ? 'Saving…' : ownRating ? 'Update rating' : 'Save rating'}</button>
       </form>
       <form className="comment-composer" onSubmit={e => submit(e, 'comments')}>
         <label htmlFor="comment">Your comment<textarea id="comment" name="body" maxLength={2000} required rows={3} placeholder="What was your visit like?" /></label>
-        <button className="primary" disabled={pending}>{pending ? 'Saving…' : 'Post comment'}</button>
+        <button className="primary" disabled={commentPending}>{commentPending ? 'Saving…' : 'Post comment'}</button>
       </form>
     </div> : <div className="notice contribute-prompt">{user
       ? <p>Verify your email to post a rating or comment. <button className="text-button" onClick={resendVerification}>Resend verification email</button></p>
       : <><p>Sign in with a verified email to rate this place or leave a comment.</p><button onClick={onSignIn}>Sign in to contribute</button></>}</div>}
-    <p role="status" className="form-status">{message || loadError || (!loaded ? 'Loading visitor contributions…' : '')}</p>
+    <p role="status" className="form-status">{message || (checkingLocation ? 'Checking location…' : loadError || (!loaded ? 'Loading visitor contributions…' : ''))}</p>
 
     <h4>Ratings{ratings.length > 0 && <span className="count">{ratings.length}</span>}</h4>
     {loaded && ratings.length === 0 && <p className="muted">No ratings yet.</p>}

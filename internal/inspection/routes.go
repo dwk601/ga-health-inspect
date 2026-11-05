@@ -27,7 +27,7 @@ type service struct {
 // Register adds read-only inspection routes without requiring either external service at startup.
 func Register(e *core.ServeEvent) {
 	s := &service{store: newStore(e.App.Logger()), cache: newCache(e.App.Logger())}
-	community.RegisterFacilityValidation(e.App, s.store.exists)
+	community.RegisterFacilityValidation(e.App, s.store.location)
 	e.App.OnTerminate().BindFunc(func(event *core.TerminateEvent) error {
 		if s.store.pool != nil {
 			s.store.pool.Close()

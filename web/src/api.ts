@@ -47,7 +47,19 @@ export function errorMessage(error: unknown, action: string, restrictedRecord = 
     if (status === 503 && contributionWrite) return 'Inspection data is temporarily unavailable; posting is paused.'
     if (status === 403) return `Could not ${action}. Check your permissions and email verification.`
     if (status === 404) return restrictedRecord ? `Could not ${action}: not allowed or no longer exists.` : `Could not ${action}. The service or record is unavailable.`
-    if (status === 400) return `Could not ${action}. Check your entries and try again.`
+    if (status === 400) {
+      if (contributionWrite && error instanceof ClientResponseError) {
+        const fields = error.response?.data as Record<string, { code?: string }> | undefined
+        const messages: Record<string, string> = {
+          location_required: 'A valid current location is required to rate.',
+          location_inaccurate: 'Your location is not accurate enough. Try again with location enabled.',
+          location_too_far: 'You must be at the facility to rate it.',
+          location_unmapped: 'This facility has no map location, so ratings are unavailable.',
+        }
+        for (const field of Object.values(fields ?? {})) if (field?.code && messages[field.code]) return messages[field.code]
+      }
+      return `Could not ${action}. Check your entries and try again.`
+    }
   }
   return `Could not ${action}. Please try again.`
 }

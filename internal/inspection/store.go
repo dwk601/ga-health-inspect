@@ -141,13 +141,16 @@ type communityAggregate struct {
 	RatingCount   int      `db:"ratingCount" json:"ratingCount"`
 }
 
-func (s *store) exists(ctx context.Context, id string) (bool, error) {
+func (s *store) location(ctx context.Context, id string) (bool, []float64, error) {
 	if s.pool == nil {
-		return false, errors.New("source unavailable")
+		return false, nil, errors.New("source unavailable")
 	}
-	var exists bool
-	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM public.facilities WHERE source_id=$1)`, id).Scan(&exists)
-	return exists, err
+	var url *string
+	err := s.pool.QueryRow(ctx, `SELECT google_places FROM public.facilities WHERE source_id=$1`, id).Scan(&url)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil, nil
+	}
+	return err == nil, coordinates(url), err
 }
 
 func (s *store) detail(ctx context.Context, id string) (*detailResult, error) {
