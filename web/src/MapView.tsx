@@ -102,7 +102,7 @@ function SelectedLocation({ selected, point }: { selected: string | null; point:
   return null
 }
 
-const clusterColors: Record<'light' | 'dark', [string, string, string]> = { light: ['#404040', '#2b2b2b', '#171717'], dark: ['#666666', '#5a5a5a', '#4d4d4d'] }
+const clusterColors: Record<'light' | 'dark', [string, string, string]> = { light: ['#404040', '#2b2b2b', '#171717'], dark: ['#787878', '#7d7d7d', '#828282'] }
 const key = import.meta.env.VITE_CARTO_KEY as string | undefined
 function transformRequest(url: string) {
   if (key) {

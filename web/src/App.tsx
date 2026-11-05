@@ -196,11 +196,11 @@ function Directory({ query, setQuery, permit, setPermit, sort, setSort, snapshot
       </div>
     </div>
     <div className="list-filters">
-      {(permitChoices.length >= 2 || permit) && <div ref={typeFilterRef} className={permit ? 'filtered' : undefined}><label htmlFor="permit">Type</label><select id="permit" value={permit} onChange={e => setPermit(e.target.value)}><option value="">All types</option>{permitChoices.map(p => <option key={p} value={p}>{p}</option>)}</select></div>}
+      {(permitChoices.length >= 2 || permit) && <div ref={typeFilterRef} className={permit ? 'filtered' : undefined}><label htmlFor="permit">Permit type</label><select id="permit" value={permit} onChange={e => setPermit(e.target.value)}><option value="">All types</option>{permitChoices.map(p => <option key={p} value={p}>{p}</option>)}</select></div>}
       <div><label htmlFor="sort">Sort</label><select id="sort" value={sort} onChange={e => setSort(e.target.value)}><option value="">{area ? 'Default' : nearby.active ? 'Nearest' : query.trim() ? 'Best match' : 'Name'}</option><option value="score-desc">Highest score</option><option value="score-asc">Lowest score</option></select></div>
     </div>
     <div className="results-heading"><span role={local ? undefined : 'status'}>{area ? 'Places in this map area' : nearby.active ? 'Nearby places' : searchMessage ? 'Search unavailable' : resultSummary(facilities.length, searching, sort)}</span></div>
-    {hasList && <button className="skip-link" onClick={skipToMap}>Skip to map</button>}
+    {hasList && (local || facilities.length > 0) && <button className="skip-link" onClick={skipToMap}>Skip to map</button>}
     {local && sort && <p className="directory-notice">Score sorting reorders the shown places only.</p>}
     {(nearby.active || area) && snapshot && mapMessage && <p className="directory-notice">{mapMessage}</p>}
     {nearby.active || area ? <NearbyResults area={area} nearby={nearby} facilities={displayed} snapshot={snapshot} pointsLoading={pointsLoading} status={status} restoreId={restoreId} onRestored={onRestored} select={select} startNearby={startNearby} leave={leave} retryPoints={retryPoints} focusNear={focusNear} /> : searchMessage ? <p className="empty" role="alert">{searchMessage}</p> : searching && !facilities.length ? null : <FacilityList facilities={facilities} restoreId={restoreId} onRestored={onRestored} onSelect={select} />}
