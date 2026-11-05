@@ -49,12 +49,16 @@ func (s *service) search(e *core.RequestEvent) error {
 	e.Response.Header().Set("Cache-Control", "no-store")
 	query := strings.TrimSpace(e.Request.URL.Query().Get("q"))
 	permit := strings.TrimSpace(e.Request.URL.Query().Get("permit"))
+	sort := e.Request.URL.Query().Get("sort")
+	if sort != "" && sort != "score-desc" && sort != "score-asc" {
+		return e.JSON(http.StatusBadRequest, map[string]string{"error": "invalid sort"})
+	}
 	if len(query) > 200 || len(permit) > 200 || !validText(query) || !validText(permit) {
 		return e.JSON(http.StatusBadRequest, map[string]string{"error": "invalid query"})
 	}
 	ctx, cancel := requestContext(e)
 	defer cancel()
-	items, err := s.store.search(ctx, query, permit)
+	items, err := s.store.search(ctx, query, permit, sort)
 	if err != nil {
 		return unavailable(e, err)
 	}

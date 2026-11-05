@@ -18,7 +18,8 @@ export function FacilityList({ facilities, restoreId, onRestored, onSelect, dist
     const distance = distances?.get(f.id)
     return <li key={f.id}><button ref={f.id === restoreId ? restoreRow : undefined} className="facility-row" onClick={() => onSelect(f.id)}>
       <span className="facility-main">
-        <strong>{f.name || 'Unnamed facility'}</strong>
+        <strong>{f.placeName ?? f.name ?? 'Unnamed facility'}</strong>
+        {f.placeName && f.name && f.placeName.toLowerCase() !== f.name.toLowerCase() && <small>Listed as {f.name}</small>}
         {distance !== undefined && <small className="distance">{distance < 0.1 ? '<0.1' : distance.toFixed(1)} mi away</small>}
         <small>{[f.permitType, f.address || 'Address unavailable'].filter(Boolean).join(' · ')}</small>
         <small>{inspected ? `Inspected ${inspected}` : 'No inspection date'}</small>

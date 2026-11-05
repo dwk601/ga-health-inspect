@@ -85,8 +85,9 @@ export function FacilityDetail({
         <>
           <header className="detail-title">
             <h2 tabIndex={-1} ref={focusHeading}>
-              {facility.name || 'Unnamed facility'}
+              {facility.placeName ?? facility.name ?? 'Unnamed facility'}
             </h2>
+            {facility.placeName && facility.name && facility.placeName.toLowerCase() !== facility.name.toLowerCase() && <p>Listed as {facility.name}</p>}
             <p>
               {[facility.permitType, facility.address || 'Address unavailable']
                 .filter(Boolean)

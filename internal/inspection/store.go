@@ -5,9 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -72,20 +76,65 @@ type facility struct {
 	LastInspectionDate  *string  `json:"lastInspectionDate"`
 	LastInspectionScore *float64 `json:"lastInspectionScore"`
 	GooglePlaces        *string  `json:"googlePlaces"`
+	PlaceName           *string  `json:"placeName"`
 }
 
 func scanFacility(row interface{ Scan(...any) error }) (facility, error) {
 	var f facility
 	err := row.Scan(&f.ID, &f.Name, &f.Address, &f.Phone, &f.PermitType, &f.PermitNumber, &f.LastInspectionDate, &f.LastInspectionScore, &f.GooglePlaces)
+	f.PlaceName = placeName(f.GooglePlaces)
 	return f, err
 }
 
-func (s *store) search(ctx context.Context, query, permit string) ([]facility, error) {
+var coordinateName = regexp.MustCompile(`(?i)^\s*[+-]?\d+(?:\.\d+)?\s*(?:,\s*[+-]?\d+(?:\.\d+)?|°.*[NS]\s*\d+°.*[EW])\s*$`)
+
+// The place segment is the first path segment after /maps/place/, matching the SQL split_part convention below.
+func placeName(raw *string) *string {
+	if raw == nil {
+		return nil
+	}
+	_, tail, ok := strings.Cut(*raw, "/maps/place/")
+	if !ok {
+		return nil
+	}
+	segment, _, _ := strings.Cut(tail, "/")
+	name, err := url.QueryUnescape(segment)
+	if err != nil || !utf8.ValidString(name) || coordinateName.MatchString(name) || !strings.ContainsFunc(name, unicode.IsLetter) {
+		return nil
+	}
+	return &name
+}
+
+func (s *store) search(ctx context.Context, query, permit, sort string) ([]facility, error) {
 	if s.pool == nil {
 		return nil, errors.New("source unavailable")
 	}
+	normalized := strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			return r
+		}
+		return -1
+	}, strings.ToLower(query))
 	query = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
-	rows, err := s.pool.Query(ctx, `SELECT `+facilityFields+` FROM public.facilities WHERE ($1 = '' OR name ILIKE '%' || $1 || '%' ESCAPE E'\\' OR address ILIKE '%' || $1 || '%' ESCAPE E'\\' OR source_id ILIKE '%' || $1 || '%' ESCAPE E'\\') AND ($2 = '' OR permit_type = $2) ORDER BY name NULLS LAST, source_id LIMIT 100`, query, permit)
+	order := ""
+	if sort == "score-asc" {
+		order = "last_inspection_score ASC NULLS LAST, "
+	} else if sort == "score-desc" {
+		order = "last_inspection_score DESC NULLS LAST, "
+	}
+	nameNorm := `regexp_replace(lower(coalesce(name,'')), '[^a-z0-9]+', '', 'g')`
+	placeNorm := `regexp_replace(lower(split_part(split_part(coalesce(google_places,''), '/maps/place/', 2), '/', 1)), '(%[0-9a-f]{2}|[^a-z0-9%])+', '', 'g')`
+	matching, rank := "", ""
+	if normalized != "" {
+		matching = ` OR strpos(` + nameNorm + `, $3) > 0 OR strpos(` + placeNorm + `, $3) > 0`
+		rank = `CASE WHEN strpos(` + nameNorm + `, $3) = 1 OR strpos(` + placeNorm + `, $3) = 1 THEN 0 WHEN strpos(` + nameNorm + `, $3) > 0 OR strpos(` + placeNorm + `, $3) > 0 THEN 1 ELSE 2 END, `
+	}
+	rows, err := s.pool.Query(ctx, `SELECT `+facilityFields+` FROM public.facilities WHERE ($1 = '' OR name ILIKE '%' || $1 || '%' ESCAPE E'\\' OR address ILIKE '%' || $1 || '%' ESCAPE E'\\' OR source_id ILIKE '%' || $1 || '%' ESCAPE E'\\'`+matching+`) AND ($2 = '' OR permit_type = $2) ORDER BY `+order+rank+`name NULLS LAST, source_id LIMIT 100`, append([]any{query, permit}, func() []any {
+		if normalized != "" {
+			return []any{normalized}
+		}
+		return nil
+	}()...)...)
 	if err != nil {
 		return nil, err
 	}

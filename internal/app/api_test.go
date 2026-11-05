@@ -329,10 +329,26 @@ func TestInspectionAPI(t *testing.T) {
 	if code != 304 || len(notModified) != 0 {
 		t.Fatal("conditional response")
 	}
-	for _, path := range []string{"/api/inspect/search?q=%00", "/api/inspect/search?permit=%FF", "/api/inspect/facilities/%00", "/api/inspect/facilities/%FF"} {
+	for _, path := range []string{"/api/inspect/search?sort=bogus", "/api/inspect/search?q=%00", "/api/inspect/search?permit=%FF", "/api/inspect/facilities/%00", "/api/inspect/facilities/%FF"} {
 		code, _, _ := request(server, path, nil)
 		if code != 400 {
-			t.Fatalf("invalid input %s: %d", path, code)
+			t.Errorf("invalid input %s: %d", path, code)
+		}
+	}
+	for _, tc := range []struct{ query, id, place string }{
+		{"q=" + url.QueryEscape("peach & pie"), "pin", "Peach & Pie Diner"},
+		{"q=Example&sort=score-asc", "zero", ""},
+		{"q=Example&sort=score-desc", "pin", "Peach & Pie Diner"},
+	} {
+		code, _, body := request(server, "/api/inspect/search?"+tc.query, nil)
+		var result struct {
+			Facilities []struct {
+				ID        string  `json:"id"`
+				PlaceName *string `json:"placeName"`
+			} `json:"facilities"`
+		}
+		if err := json.Unmarshal(body, &result); code != 200 || err != nil || len(result.Facilities) == 0 || result.Facilities[0].ID != tc.id || (tc.place != "" && (result.Facilities[0].PlaceName == nil || *result.Facilities[0].PlaceName != tc.place)) {
+			t.Errorf("search %s: %d %s", tc.query, code, body)
 		}
 	}
 	code, _, search := request(server, "/api/inspect/search?q=Missing", nil)

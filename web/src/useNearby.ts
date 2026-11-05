@@ -44,6 +44,17 @@ export function useNearby(snapshot: Snapshot | null, permit: string, area: MapAr
   const [locating, setLocating] = useState(false)
   const [error, setError] = useState('')
   const sequence = useRef(0)
+  const permitChoices = useMemo(() => {
+    if (!snapshot) return []
+    const local = snapshot.points.filter(p => {
+      if (area) {
+        const [[west, south], [east, north]] = area.bounds
+        return p.coordinates[0] >= west && p.coordinates[0] <= east && p.coordinates[1] >= south && p.coordinates[1] <= north
+      }
+      return !!origin && distanceMiles(origin.coordinates, p.coordinates) <= 25
+    })
+    return [...new Set(local.flatMap(p => p.permitType ? [p.permitType] : []))].sort()
+  }, [snapshot, area, origin])
   const candidates = useMemo<Candidate[]>(() => {
     if (!origin || !snapshot) return []
     return snapshot.points.filter(p => !permit || p.permitType === permit)
@@ -84,7 +95,7 @@ export function useNearby(snapshot: Snapshot | null, permit: string, area: MapAr
   }, [])
   useEffect(() => () => { sequence.current++ }, [])
   return {
-    active, origin, locating, error, candidates: listCandidates, fitCandidates: candidates, areaCount: areaPoints.length, canLocate: window.isSecureContext && !!navigator.geolocation,
+    active, origin, locating, error, permitChoices, candidates: listCandidates, fitCandidates: candidates, areaCount: areaPoints.length, canLocate: window.isSecureContext && !!navigator.geolocation,
     distances: new Map(origin ? listCandidates.map(c => [c.point.id, distanceMiles(origin.coordinates, c.point.coordinates)]) : []),
     ...lookup,
     locate, exit,

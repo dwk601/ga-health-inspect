@@ -270,7 +270,8 @@ p {
 .discovery-actions { display: flex; gap: .5rem; }
 .sidebar .near-button { display: inline-flex; align-items: center; justify-content: center; gap: .5rem; min-height: 44px; }
 .permit-chips { display: flex; flex-wrap: wrap; gap: .4rem; padding: .5rem 1.25rem; }
-.sidebar .permit-chips button { flex: none; min-height: 44px; border-radius: 999px; }
+.sidebar .permit-chips button { flex: none; min-height: 36px; padding: .3rem .7rem; border-radius: 999px; font-size: .8rem; }
+@media (max-width: 720px) { .sidebar .permit-chips button { min-height: 44px; } }
 .sidebar .permit-chips button[aria-pressed="true"] { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
 .search-field {
   position: relative;
@@ -338,6 +339,10 @@ textarea {
   font-size: 0.75rem;
   font-weight: 600;
 }
+.results-heading > span { margin-right: auto; }
+.results-heading label { margin: 0 .4rem 0 .75rem; }
+.results-heading select { width: auto; margin: 0; padding: .35rem .45rem; font-size: .8rem; min-height: 36px; }
+@media (max-width: 720px) { .results-heading select { min-height: 44px; font-size: 1rem; } }
 .facility-list,
 .contributions,
 .inspection-history ol {

@@ -1,5 +1,5 @@
 INSERT INTO public.facilities (source_id, name, address, permit_type, last_inspection_date, last_inspection_score, raw, google_places) VALUES
-('pin', 'Peachtree Example', 'Atlanta, GA', 'Restaurant', '2025-02-01', 92, '{}', 'https://www.google.com/maps/place/Example/@34,-85,12z/data=!3d33.749!4d-84.388'),
+('pin', 'Peachtree Example', 'Atlanta, GA', 'Restaurant', '2025-02-01', 92, '{}', 'https://www.google.com/maps/place/Peach+%26+Pie+Diner/@34,-85,12z/data=!3d33.749!4d-84.388'),
 ('123456789012345678', 'Numeric %_\ ID Example', 'Georgia', 'Food Service', NULL, NULL, '{}', NULL),
 ('zero', 'Zero Example', 'Macon, GA', 'Restaurant', NULL, 0, '{}', 'https://maps.example/!3d32.84!4d-83.63'),
 ('missing', 'Missing Location Example', 'Georgia', 'Food Service', NULL, NULL, '{}', NULL),
