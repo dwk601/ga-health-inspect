@@ -372,6 +372,8 @@ func TestInspectionAPI(t *testing.T) {
 			t.Fatal(err)
 		}
 		code, _, body := request(server, "/api/inspect/facilities/coordinate-test", nil)
+		// 33 is a digit run in every normalized segment; a place-only match would return the row.
+		searchCode, _, searchBody := request(server, "/api/inspect/search?q=33", nil)
 		_, deleteErr := admin.Exec(ctx, `DELETE FROM public.facilities WHERE source_id='coordinate-test'`)
 		if deleteErr != nil {
 			t.Fatal(deleteErr)
@@ -383,6 +385,9 @@ func TestInspectionAPI(t *testing.T) {
 		}
 		if err := json.Unmarshal(body, &result); code != 200 || err != nil || result.Facility.PlaceName != nil {
 			t.Errorf("coordinate place name %q: %d %s", segment, code, body)
+		}
+		if searchCode != 200 || strings.Contains(string(searchBody), `"id":"coordinate-test"`) {
+			t.Errorf("coordinate place %q search: %d %s", segment, searchCode, searchBody)
 		}
 	}
 	code, h, detail := request(server, "/api/inspect/facilities/pin", nil)

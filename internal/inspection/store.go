@@ -124,7 +124,9 @@ func (s *store) search(ctx context.Context, query, permit, sort string) ([]facil
 	}
 	nameNorm := `regexp_replace(lower(coalesce(name,'')), '[^a-z0-9]+', '', 'g')`
 	placeNorm := `regexp_replace(lower(split_part(split_part(coalesce(google_places,''), '/maps/place/', 2), '/', 1)), '(%[0-9a-f]{2}|[^a-z0-9%])+', '', 'g')`
-	rows, err := s.pool.Query(ctx, `SELECT `+facilityFields+` FROM public.facilities WHERE ($1 = '' OR name ILIKE '%' || $1 || '%' ESCAPE E'\\' OR address ILIKE '%' || $1 || '%' ESCAPE E'\\' OR source_id ILIKE '%' || $1 || '%' ESCAPE E'\\' OR ($3 <> '' AND (strpos(`+nameNorm+`, $3) > 0 OR strpos(`+placeNorm+`, $3) > 0))) AND ($2 = '' OR permit_type = $2) ORDER BY `+order+`CASE WHEN $3 = '' THEN 2 WHEN strpos(`+nameNorm+`, $3) = 1 OR strpos(`+placeNorm+`, $3) = 1 THEN 0 WHEN strpos(`+nameNorm+`, $3) > 0 OR strpos(`+placeNorm+`, $3) > 0 THEN 1 ELSE 2 END, name NULLS LAST, source_id LIMIT 100`, query, permit, normalized)
+	// Dropped-pin coordinate labels are not place names (see coordinateName), so they are not searchable.
+	searchPlace := `regexp_replace(` + placeNorm + `, '^[nsew]*[0-9][0-9nsew]*$', '')`
+	rows, err := s.pool.Query(ctx, `SELECT `+facilityFields+` FROM public.facilities WHERE ($1 = '' OR name ILIKE '%' || $1 || '%' ESCAPE E'\\' OR address ILIKE '%' || $1 || '%' ESCAPE E'\\' OR source_id ILIKE '%' || $1 || '%' ESCAPE E'\\' OR ($3 <> '' AND (strpos(`+nameNorm+`, $3) > 0 OR strpos(`+searchPlace+`, $3) > 0))) AND ($2 = '' OR permit_type = $2) ORDER BY `+order+`CASE WHEN $3 = '' THEN 2 WHEN strpos(`+nameNorm+`, $3) = 1 OR strpos(`+searchPlace+`, $3) = 1 THEN 0 WHEN strpos(`+nameNorm+`, $3) > 0 OR strpos(`+searchPlace+`, $3) > 0 THEN 1 ELSE 2 END, name NULLS LAST, source_id LIMIT 100`, query, permit, normalized)
 	if err != nil {
 		return nil, err
 	}
