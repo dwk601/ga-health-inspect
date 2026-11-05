@@ -1,55 +1,45 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { lookupFacilities } from './api'
-import { geolocationFailureMessage } from './geolocation'
-import type { Facility, Point, Snapshot } from './types'
+import { distanceMiles, geolocationFailureMessage, type LocationFix } from './geolocation'
+import type { Facility, MapArea, Point, Snapshot } from './types'
 
-export type Origin = { coordinates: [number, number]; accuracy: number; sequence: number }
+export type Origin = LocationFix & { sequence: number }
 type Candidate = { point: Point; distance: number }
 
-function distance(a: [number, number], b: [number, number]) {
-  const radians = Math.PI / 180
-  const lat = (b[1] - a[1]) * radians
-  const lon = (b[0] - a[0]) * radians
-  const h = Math.sin(lat / 2) ** 2 + Math.cos(a[1] * radians) * Math.cos(b[1] * radians) * Math.sin(lon / 2) ** 2
-  return 3958.8 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h))
-}
 
-export function useNearby(snapshot: Snapshot | null, permit: string) {
+export function useNearby(snapshot: Snapshot | null, permit: string, area: MapArea | null) {
   const [active, setActive] = useState(false)
   const [origin, setOrigin] = useState<Origin | null>(null)
   const [locating, setLocating] = useState(false)
   const [error, setError] = useState('')
-  const [lookup, setLookup] = useState<{ key: string; facilities: Facility[]; error: string } | null>(null)
-  const [retryVersion, setRetryVersion] = useState(0)
   const sequence = useRef(0)
   const candidates = useMemo<Candidate[]>(() => {
     if (!origin || !snapshot) return []
     return snapshot.points.filter(p => !permit || p.permitType === permit)
-      .map(point => ({ point, distance: distance(origin.coordinates, point.coordinates) }))
+      .map(point => ({ point, distance: distanceMiles(origin.coordinates, point.coordinates) }))
       .filter(item => item.distance <= 25)
       .sort((a, b) => a.distance - b.distance || (a.point.id < b.point.id ? -1 : a.point.id > b.point.id ? 1 : 0)).slice(0, 20)
   }, [origin, snapshot, permit])
-  const key = JSON.stringify(candidates.map(c => c.point.id))
-  const canLookup = active && !!origin && !!snapshot
-  useEffect(() => {
-    if (!canLookup || key === '[]') return
-    const controller = new AbortController()
-    lookupFacilities(JSON.parse(key) as string[], controller.signal).then(facilities => {
-      if (!controller.signal.aborted) setLookup({ key, facilities, error: '' })
-    }).catch(() => { if (!controller.signal.aborted) setLookup({ key, facilities: [], error: 'Place details are unavailable. Try again.' }) })
-    return () => controller.abort()
-  }, [canLookup, key, retryVersion])
+  const areaCandidates = useMemo(() => {
+    if (!area || !snapshot) return []
+    const [[west, south], [east, north]] = area.bounds
+    return snapshot.points.filter(p => (!permit || p.permitType === permit) && p.coordinates[0] >= west && p.coordinates[0] <= east && p.coordinates[1] >= south && p.coordinates[1] <= north)
+      .map(point => ({ point, distance: distanceMiles(area.center, point.coordinates) }))
+      .sort((a, b) => a.distance - b.distance || a.point.id.localeCompare(b.point.id))
+  }, [area, snapshot, permit])
+  const listCandidates = area ? areaCandidates.slice(0, 20) : candidates
+  const lookup = useFacilityLookup(listCandidates, !!snapshot && (active && !!origin || !!area))
   const exit = useCallback(() => { sequence.current++; setActive(false); setLocating(false); setOrigin(null); setError('') }, [])
   const locate = useCallback(() => {
     const current = ++sequence.current
-    setActive(true); setLocating(true); setOrigin(null); setError(''); setLookup(null)
+    setActive(true); setLocating(true); setOrigin(null); setError('')
     if (!window.isSecureContext || !navigator.geolocation) {
       setLocating(false); setError(!window.isSecureContext ? 'Location requires a secure connection. Open this site over HTTPS or browse all Georgia.' : 'This browser does not support location. Browse all Georgia instead.')
       return
     }
     navigator.geolocation.getCurrentPosition(position => {
       if (sequence.current !== current) return
-      setOrigin({ coordinates: [position.coords.longitude, position.coords.latitude], accuracy: position.coords.accuracy, sequence: current }); setLocating(false)
+      setOrigin({ coordinates: [position.coords.longitude, position.coords.latitude], accuracy: position.coords.accuracy, timestamp: position.timestamp, sequence: current }); setLocating(false)
     }, failure => {
       if (sequence.current !== current) return
       setLocating(false)
@@ -57,17 +47,28 @@ export function useNearby(snapshot: Snapshot | null, permit: string) {
     }, { maximumAge: 0, timeout: 10000, enableHighAccuracy: false })
   }, [])
   useEffect(() => () => { sequence.current++ }, [])
-  const current = lookup?.key === key ? lookup : null
-  const facilities = current?.facilities ?? []
-  const ids = new Set(facilities.map(f => f.id))
+  const ids = new Set(lookup.facilities.map(f => f.id))
   return {
-    active, origin, locating, error, candidates, facilities, canLocate: window.isSecureContext && !!navigator.geolocation,
-    points: candidates.filter(c => ids.has(c.point.id)).map(c => c.point),
-    distances: new Map(candidates.map(c => [c.point.id, c.distance])),
-    loading: !!(active && origin && snapshot && candidates.length && !current),
-    lookupError: current?.error ?? '',
-    missing: current && !current.error ? candidates.length - facilities.length : 0,
+    active, origin, locating, error, candidates: listCandidates, fitCandidates: candidates, areaCount: areaCandidates.length, canLocate: window.isSecureContext && !!navigator.geolocation,
+    points: listCandidates.filter(c => ids.has(c.point.id)).map(c => c.point),
+    distances: new Map(listCandidates.map(c => [c.point.id, origin ? distanceMiles(origin.coordinates, c.point.coordinates) : c.distance])),
+    ...lookup,
     locate, exit,
-    retry: () => { setLookup(null); setRetryVersion(v => v + 1) },
   }
+}
+
+function useFacilityLookup(candidates: Candidate[], enabled: boolean) {
+  const [lookup, setLookup] = useState<{ key: string; facilities: Facility[]; error: string } | null>(null)
+  const [retryVersion, setRetryVersion] = useState(0)
+  const key = JSON.stringify(candidates.map(c => c.point.id))
+  useEffect(() => {
+    if (!enabled || key === '[]') return
+    const controller = new AbortController()
+    lookupFacilities(JSON.parse(key) as string[], controller.signal).then(facilities => {
+      if (!controller.signal.aborted) setLookup({ key, facilities, error: '' })
+    }).catch(() => { if (!controller.signal.aborted) setLookup({ key, facilities: [], error: 'Place details are unavailable. Try again.' }) })
+    return () => controller.abort()
+  }, [enabled, key, retryVersion])
+  const current = lookup?.key === key ? lookup : null
+  return { facilities: current?.facilities ?? [], loading: enabled && !!candidates.length && !current, lookupError: current?.error ?? '', missing: current && !current.error ? candidates.length - current.facilities.length : 0, retry: () => { setLookup(null); setRetryVersion(v => v + 1) } }
 }

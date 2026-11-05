@@ -938,11 +938,11 @@ function MapControls({
   const [waitingForLocation, setWaitingForLocation] = useState(false);
 
   const handleZoomIn = useCallback(() => {
-    map?.zoomTo(map.getZoom() + 1, { duration: 300 });
+    map?.zoomTo(map.getZoom() + 1, { duration: 300 }, { user: true });
   }, [map]);
 
   const handleZoomOut = useCallback(() => {
-    map?.zoomTo(map.getZoom() - 1, { duration: 300 });
+    map?.zoomTo(map.getZoom() - 1, { duration: 300 }, { user: true });
   }, [map]);
 
   const handleResetBearing = useCallback(() => {
@@ -2646,7 +2646,7 @@ function MapClusterLayer<
         map.easeTo({
           center: coordinates,
           zoom,
-        });
+        }, { user: true });
       }
     };
 
