@@ -2,7 +2,7 @@ import { Component, Suspense, lazy, useCallback, useEffect, useLayoutEffect, use
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import type { RecordModel } from 'pocketbase'
 import { LocateFixed, MapPinned, Moon, Search, Sun } from 'lucide-react'
-import { useNearby } from './useNearby'
+import { LIST_LIMIT, useNearby } from './useNearby'
 import { pb, getPoints, getDetail, search, refreshAuth } from './api'
 import { MapFailure } from './MapFailure'
 import { FacilityList } from './FacilityList'
@@ -106,7 +106,7 @@ function nearbyStatus(nearby: Nearby, snapshot: Snapshot | null, pointsLoading: 
   if (nearby.lookupError) return { text: `${nearby.lookupError}${accuracy}`, error: true }
   if (area) {
     const missing = nearby.missing ? ` ${nearby.missing} ${nearby.missing === 1 ? 'place is' : 'places are'} missing details.` : ''
-    return { text: nearby.areaCount > 20 ? `Showing 20 of ${nearby.areaCount} places spread across this area. Zoom in to see others.${missing}` : nearby.areaCount ? `${nearby.areaCount} ${nearby.areaCount === 1 ? 'place' : 'places'} in this area.${missing}` : 'No places in this map area.', error: false }
+    return { text: nearby.areaCount > LIST_LIMIT ? `Showing ${LIST_LIMIT} of ${nearby.areaCount} places spread across this area. Zoom in to see others.${missing}` : nearby.areaCount ? `${nearby.areaCount} ${nearby.areaCount === 1 ? 'place' : 'places'} in this area.${missing}` : 'No places in this map area.', error: false }
   }
   if (!nearby.candidates.length) return { text: `No places found within 25 miles${permit ? ' for this type' : ''}.${accuracy}`, error: false }
   const missing = nearby.missing ? ` ${nearby.missing} nearby ${nearby.missing === 1 ? 'place is' : 'places are'} missing details and not shown.` : ''
@@ -132,7 +132,7 @@ function NearbyResults({ nearby, snapshot, pointsLoading, status, restoreId, onR
     return null
   }
   return <>
-    <p className="nearby-description">{area ? 'Places visible in the map area. Distances are straight-line, not travel distances.' : 'Within 25 miles, up to 20 places. Distances are straight-line, not travel distances.'}</p>
+    <p className="nearby-description">{area ? 'Places visible in the map area. Distances are straight-line, not travel distances.' : `Within 25 miles, up to ${LIST_LIMIT} places. Distances are straight-line, not travel distances.`}</p>
     <div className="nearby-status"><NearbyStatus status={status} /></div>
     {results()}
   </>
