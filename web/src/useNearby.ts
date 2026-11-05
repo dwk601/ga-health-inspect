@@ -12,9 +12,9 @@ function inBounds(point: Point, area: MapArea) {
   return point.coordinates[0] >= west && point.coordinates[0] <= east && point.coordinates[1] >= south && point.coordinates[1] <= north
 }
 
-// Picks up to LIST_LIMIT places spread over the visible map: a grid splits the view into cells,
+// Picks up to `limit` places spread over the visible map: a grid splits the view into cells,
 // and each round takes the next place nearest each cell's centre, central cells first.
-function spreadAcross(area: MapArea, points: Point[]) {
+function spreadAcross(area: MapArea, points: Point[], limit: number) {
   const [[west, south], [east, north]] = area.bounds
   const lonSpan = east - west
   const latSpan = north - south
@@ -36,10 +36,15 @@ function spreadAcross(area: MapArea, points: Point[]) {
   const ordered = [...cells.values()].sort((a, b) => distanceMiles(area.center, a.center) - distanceMiles(area.center, b.center))
   for (const cell of ordered) cell.places.sort((a, b) => a.offset - b.offset || a.point.id.localeCompare(b.point.id))
   const picked: Point[] = []
-  for (let round = 0; picked.length < LIST_LIMIT && picked.length < points.length; round++) {
-    for (const cell of ordered) if (round < cell.places.length && picked.length < LIST_LIMIT) picked.push(cell.places[round].point)
+  for (let round = 0; picked.length < limit && picked.length < points.length; round++) {
+    for (const cell of ordered) if (round < cell.places.length && picked.length < limit) picked.push(cell.places[round].point)
   }
   return picked
+}
+
+function byDistance(from: [number, number], points: Point[]): Candidate[] {
+  return points.map(point => ({ point, distance: distanceMiles(from, point.coordinates) }))
+    .sort((a, b) => a.distance - b.distance || a.point.id.localeCompare(b.point.id))
 }
 
 
@@ -68,13 +73,18 @@ export function useNearby(snapshot: Snapshot | null, permit: string, area: MapAr
     if (!area || !snapshot) return []
     return snapshot.points.filter(p => (!permit || p.permitType === permit) && inBounds(p, area))
   }, [area, snapshot, permit])
+  const areaKey = JSON.stringify([area, permit])
+  const [more, setMore] = useState({ key: '', limit: LIST_LIMIT })
+  const areaLimit = more.key === areaKey ? more.limit : LIST_LIMIT
+  const showMore = useCallback(() => setMore({ key: areaKey, limit: areaLimit + LIST_LIMIT }), [areaKey, areaLimit])
   const areaCandidates = useMemo(() => {
     if (!area) return []
     const from = origin?.coordinates ?? area.center
-    return spreadAcross(area, areaPoints)
-      .map(point => ({ point, distance: distanceMiles(from, point.coordinates) }))
-      .sort((a, b) => a.distance - b.distance || a.point.id.localeCompare(b.point.id))
-  }, [area, areaPoints, origin])
+    const picked = spreadAcross(area, areaPoints, areaLimit)
+    const pages: Candidate[] = []
+    for (let start = 0; start < picked.length; start += LIST_LIMIT) pages.push(...byDistance(from, picked.slice(start, start + LIST_LIMIT)))
+    return pages
+  }, [area, areaPoints, origin, areaLimit])
   const listCandidates = area ? areaCandidates : candidates
   const lookup = useFacilityLookup(listCandidates, !!snapshot && (active && !!origin || !!area))
   const exit = useCallback(() => { sequence.current++; setActive(false); setLocating(false); setOrigin(null); setError('') }, [])
@@ -96,7 +106,7 @@ export function useNearby(snapshot: Snapshot | null, permit: string, area: MapAr
   }, [])
   useEffect(() => () => { sequence.current++ }, [])
   return {
-    active, origin, locating, error, permitChoices, candidates: listCandidates, fitCandidates: candidates, areaCount: areaPoints.length, canLocate: window.isSecureContext && !!navigator.geolocation,
+    active, origin, locating, error, permitChoices, candidates: listCandidates, fitCandidates: candidates, areaCount: areaPoints.length, showMore, canLocate: window.isSecureContext && !!navigator.geolocation,
     distances: new Map(origin ? listCandidates.map(c => [c.point.id, distanceMiles(origin.coordinates, c.point.coordinates)]) : []),
     ...lookup,
     locate, exit,
@@ -117,5 +127,10 @@ function useFacilityLookup(candidates: Candidate[], enabled: boolean) {
     return () => controller.abort()
   }, [enabled, key, retryVersion, cached])
   const current = cached !== null ? { facilities: cached, error: '' } : lookup?.key === key ? lookup : null
-  return { facilities: current?.facilities ?? [], loading: enabled && !!candidates.length && !current, lookupError: current?.error ?? '', missing: current && !current.error ? candidates.length - current.facilities.length : 0, retry: () => { setLookup(null); setRetryVersion(v => v + 1) } }
+  const settled = useRef<{ ids: string[]; facilities: Facility[] } | null>(null)
+  if (current && !current.error) settled.current = { ids: candidates.map(c => c.point.id), facilities: current.facilities }
+  const previous = settled.current
+  const loadingMore = enabled && !current && !!previous?.ids.length && previous.ids.length < candidates.length && previous.ids.every((id, i) => candidates[i]?.point.id === id)
+  if (loadingMore) return { facilities: previous.facilities, loading: false, loadingMore, lookupError: '', missing: 0, retry: () => {} }
+  return { facilities: current?.facilities ?? [], loading: enabled && !!candidates.length && !current, loadingMore, lookupError: current?.error ?? '', missing: current && !current.error ? candidates.length - current.facilities.length : 0, retry: () => { setLookup(null); setRetryVersion(v => v + 1) } }
 }

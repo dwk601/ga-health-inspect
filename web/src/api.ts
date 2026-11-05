@@ -45,6 +45,12 @@ export async function search(q: string, permit: string, sort: string, signal: Ab
   }
   return data
 }
+const LOOKUP_BATCH = 20
+async function lookupBatch(ids: string[], signal: AbortSignal) {
+  const response = await fetch('/api/inspect/facilities/lookup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }), signal })
+  if (!response.ok) throw new Error('Place details unavailable')
+  return (await response.json() as { facilities: Facility[] }).facilities
+}
 export function cachedFacilities(ids: string[]): Facility[] | null {
   const now = Date.now()
   if (ids.some(id => (facilityCache.get(id)?.expires ?? 0) <= now)) return null
@@ -53,15 +59,15 @@ export function cachedFacilities(ids: string[]): Facility[] | null {
 export async function lookupFacilities(ids: string[], signal: AbortSignal) {
   const missing = ids.filter(id => (facilityCache.get(id)?.expires ?? 0) <= Date.now())
   if (missing.length) {
-    const response = await fetch('/api/inspect/facilities/lookup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: missing }), signal })
-    if (!response.ok) throw new Error('Place details unavailable')
-    const facilities = (await response.json() as { facilities: Facility[] }).facilities
+    const batches = []
+    for (let start = 0; start < missing.length; start += LOOKUP_BATCH) batches.push(missing.slice(start, start + LOOKUP_BATCH))
+    const facilities = (await Promise.all(batches.map(batch => lookupBatch(batch, signal)))).flat()
     if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
     const byId = new Map(facilities.map(f => [f.id, f]))
     for (const id of missing) {
       const facility = byId.get(id) ?? null
       facilityCache.delete(id); facilityCache.set(id, { facility, expires: Date.now() + (facility ? 300000 : 60000) })
-      if (facilityCache.size > 500) facilityCache.delete(facilityCache.keys().next().value!)
+      if (facilityCache.size > 2000) facilityCache.delete(facilityCache.keys().next().value!)
     }
   }
   return ids.flatMap(id => { const facility = facilityCache.get(id)?.facility; return facility ? [facility] : [] })

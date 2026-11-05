@@ -107,7 +107,8 @@ function nearbyStatus(nearby: Nearby, snapshot: Snapshot | null, pointsLoading: 
   if (nearby.lookupError) return { text: `${nearby.lookupError}${accuracy}`, error: true }
   if (area) {
     const missing = nearby.missing ? ` ${nearby.missing} ${nearby.missing === 1 ? 'place is' : 'places are'} missing details.` : ''
-    return { text: nearby.areaCount > LIST_LIMIT ? `Showing ${LIST_LIMIT} of ${nearby.areaCount} places spread across this area. Zoom in or select a cluster to see others.${missing}` : nearby.areaCount ? `${nearby.areaCount} ${nearby.areaCount === 1 ? 'place' : 'places'} in this area.${missing}` : 'No places in this map area.', error: false }
+    const shown = nearby.candidates.length
+    return { text: nearby.areaCount > shown ? `Showing ${shown} of ${nearby.areaCount} places spread across this area.${missing}` : nearby.areaCount ? `${nearby.areaCount} ${nearby.areaCount === 1 ? 'place' : 'places'} in this area.${missing}` : 'No places in this map area.', error: false }
   }
   if (!nearby.candidates.length) return { text: `No places found within 25 miles${permit ? ' for this type' : ''}.${accuracy}`, error: false }
   const missing = nearby.missing ? ` ${nearby.missing} nearby ${nearby.missing === 1 ? 'place is' : 'places are'} missing details and not shown.` : ''
@@ -129,7 +130,10 @@ function NearbyResults({ nearby, facilities, snapshot, pointsLoading, status, re
     if (nearby.loading) return <div className="nearby-loading">{nearby.candidates.map(c => <div key={c.point.id} className="loading-row" aria-hidden="true" />)}</div>
     if (nearby.lookupError) return <div className="empty"><button onClick={() => retry(nearby.retry)}>Try again</button></div>
     if (snapshot && !nearby.locating && !nearby.candidates.length) return <div className="empty"><button onClick={leave}>Search all Georgia</button></div>
-    if (nearby.facilities.length) return <FacilityList facilities={facilities} distances={nearby.origin ? nearby.distances : undefined} restoreId={restoreId} onRestored={onRestored} onSelect={select} />
+    if (nearby.facilities.length) return <>
+      <FacilityList facilities={facilities} distances={nearby.origin ? nearby.distances : undefined} restoreId={restoreId} onRestored={onRestored} onSelect={select} />
+      {area && (nearby.loadingMore || nearby.areaCount > nearby.candidates.length) && <div className="show-more"><button onClick={nearby.showMore} disabled={nearby.loadingMore}>{nearby.loadingMore ? 'Loading…' : `Show ${Math.min(LIST_LIMIT, nearby.areaCount - nearby.candidates.length)} more`}</button></div>}
+    </>
     return null
   }
   return <>

@@ -412,6 +412,8 @@ textarea {
 .nearby-status p { margin: 0; }
 .directory-notice { background: var(--muted); }
 .nearby-loading { min-height: 18rem; }
+.show-more { padding: 1rem 1.25rem 1.5rem; }
+.show-more button { width: 100%; }
 .loading-row { min-height: 5.5rem; border-bottom: 1px solid var(--border); background: linear-gradient(var(--muted), var(--muted)) 1.25rem 1.2rem / 45% .7rem no-repeat, linear-gradient(var(--muted), var(--muted)) 1.25rem 2.7rem / 65% .6rem no-repeat; }
 .empty {
   margin: 0;
