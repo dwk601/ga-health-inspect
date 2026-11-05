@@ -141,7 +141,7 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, retryM
   const adminId = (item: Item) => user?.role === 'admin' && <small>User ID: {item.owner}</small>
 
   return <section className="community" aria-labelledby="community-title">
-    <h3 id="community-title" tabIndex={-1}>Visitor experience · 1–5</h3>
+    <h2 id="community-title" tabIndex={-1}>Visitor experience · 1–5</h2>
     <p className="muted">Visitor ratings reflect personal experiences. They are not a safety score.</p>
     {user?.verified ? <div className="contribute">
       <form onSubmit={e => submit(e, 'ratings')} className="compact-form">
@@ -159,14 +159,14 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, retryM
       : <><p>Sign in with a verified email to rate this place or leave a comment. Ratings require being at the place.</p><button onClick={onSignIn}>Sign in to contribute</button></>}</div>}
     <p role="status" className="form-status">{message || loadError || (!loaded ? 'Loading visitor contributions…' : '')}</p>
 
-    <h4>Ratings{ratings.length > 0 && <span className="count">{ratings.length}</span>}</h4>
+    <h3>Ratings{ratings.length > 0 && <span className="count">{ratings.length}</span>}</h3>
     {loaded && ratings.length === 0 && <p className="muted">No ratings yet.</p>}
     <ul className="contributions">{ratings.map(item => <li key={item.id}>
       <div className="contribution-head">{byline(item)}<span className="rating-value">{item.rating}<small>/5</small></span></div>
       {canRemove(item) && <button className="text-button" onClick={() => remove('ratings', item)}>Remove rating</button>}{adminId(item)}
     </li>)}</ul>
 
-    <h4>Comments{comments.length > 0 && <span className="count">{comments.length}</span>}</h4>
+    <h3>Comments{comments.length > 0 && <span className="count">{comments.length}</span>}</h3>
     {loaded && comments.length === 0 && <p className="muted">No comments yet.</p>}
     <ul className="contributions">{comments.map(item => <li key={item.id}>
       <div className="contribution-head">{byline(item)}</div>
@@ -184,6 +184,6 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, retryM
       {adminId(item)}
     </li>)}</ul>
 
-    {user?.verified && user.role === 'admin' && <form onSubmit={role} className="role-form"><h4>Change user role</h4><label htmlFor="user-id">User ID<input id="user-id" name="userId" required /></label><label htmlFor="user-role">Role<select id="user-role" name="role"><option value="user">User</option><option value="moderator">Moderator</option><option value="admin">Admin</option></select></label><button>Update role</button></form>}
+    {user?.verified && user.role === 'admin' && <form onSubmit={role} className="role-form"><h3>Change user role</h3><label htmlFor="user-id">User ID<input id="user-id" name="userId" required /></label><label htmlFor="user-role">Role<select id="user-role" name="role"><option value="user">User</option><option value="moderator">Moderator</option><option value="admin">Admin</option></select></label><button>Update role</button></form>}
   </section>
 }

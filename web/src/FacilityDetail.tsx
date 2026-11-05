@@ -85,9 +85,9 @@ export function FacilityDetail({
       {detail && facility && (
         <>
           <header className="detail-title">
-            <h2 tabIndex={-1} ref={focusHeading}>
+            <h1 tabIndex={-1} ref={focusHeading}>
               {facilityTitle(facility)}
-            </h2>
+            </h1>
             {officialName(facility) && <p>Listed as {officialName(facility)}</p>}
             <p>
               {[facility.permitType, facility.address || 'Address unavailable']
@@ -122,7 +122,7 @@ export function FacilityDetail({
             </div>
           </dl>
           <section className="inspection-history">
-            <h3>Inspection history</h3>
+            <h2>Inspection history</h2>
             {!detail.inspections.length && (
               <p className="muted">No inspections on record.</p>
             )}
