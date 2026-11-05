@@ -38,6 +38,7 @@ function Contact({ facility }: { facility: Detail['facility'] }) {
 
 export function FacilityDetail({
   id,
+  mapped,
   nearby,
   onClose,
   onSignIn,
@@ -47,6 +48,7 @@ export function FacilityDetail({
   load,
 }: {
   id: string
+  mapped?: boolean
   nearby: boolean
   onClose: () => void
   onSignIn: () => void
@@ -168,6 +170,7 @@ export function FacilityDetail({
           <CommunityPanel
             key={`${id}-${user?.id ?? 'anonymous'}`}
             facilityId={id}
+            mapped={mapped}
             user={user}
             refresh={load}
             onSignIn={onSignIn}

@@ -714,13 +714,37 @@ func TestCommunityPermissions(t *testing.T) {
 		t.Fatalf("superuser default role: %v", defaultRole)
 	}
 	request("PATCH", users+"/"+other.Id, adminToken, map[string]any{"role": "user"}, 200)
-	rating := map[string]any{"owner": owner.Id, "facility_id": "missing", "rating": 4}
-	request("POST", ratings, unverifiedToken, map[string]any{"owner": unverified.Id, "facility_id": "missing", "rating": 4}, 400)
+	coords := map[string]any{"latitude": 33.749, "longitude": -84.388, "accuracy": 100}
+	withCoords := func(fields map[string]any) map[string]any {
+		result := map[string]any{}
+		for k, v := range coords {
+			result[k] = v
+		}
+		for k, v := range fields {
+			result[k] = v
+		}
+		return result
+	}
+	rating := withCoords(map[string]any{"owner": owner.Id, "facility_id": "pin", "rating": 4})
+	request("POST", ratings, unverifiedToken, withCoords(map[string]any{"owner": unverified.Id, "facility_id": "pin", "rating": 4}), 400)
 	request("POST", ratings, otherToken, rating, 400)
-	invalid := map[string]any{"owner": owner.Id, "facility_id": "does-not-exist", "rating": 4}
-	request("POST", ratings, ownerToken, invalid, 400)
+	request("POST", ratings, ownerToken, withCoords(map[string]any{"owner": owner.Id, "facility_id": "does-not-exist", "rating": 4}), 400)
 	for _, value := range []any{0, 6, 2.5} {
-		request("POST", ratings, ownerToken, map[string]any{"owner": owner.Id, "facility_id": "missing", "rating": value}, 400)
+		request("POST", ratings, ownerToken, withCoords(map[string]any{"owner": owner.Id, "facility_id": "pin", "rating": value}), 400)
+	}
+	for _, tc := range []struct {
+		fields      map[string]any
+		field, code string
+	}{
+		{map[string]any{"owner": owner.Id, "facility_id": "pin", "rating": 4}, "latitude", "location_required"},
+		{withCoords(map[string]any{"owner": owner.Id, "facility_id": "pin", "rating": 4, "accuracy": 100.01}), "accuracy", "location_inaccurate"},
+		{withCoords(map[string]any{"owner": owner.Id, "facility_id": "pin", "rating": 4, "latitude": 33.7517}), "latitude", "location_too_far"},
+		{withCoords(map[string]any{"owner": owner.Id, "facility_id": "missing", "rating": 4}), "latitude", "location_unmapped"},
+	} {
+		result := request("POST", ratings, ownerToken, tc.fields, 400)
+		if result["data"].(map[string]any)[tc.field].(map[string]any)["code"] != tc.code {
+			t.Fatalf("location error: %v", result)
+		}
 	}
 	r := request("POST", ratings, ownerToken, rating, 200)
 	rid := r["id"].(string)
@@ -728,11 +752,21 @@ func TestCommunityPermissions(t *testing.T) {
 		t.Fatalf("author enrichment: %v", r)
 	}
 	request("POST", ratings, ownerToken, rating, 400)
-	request("PATCH", ratings+"/"+rid, ownerToken, map[string]any{"facility_id": "pin"}, 404)
-	request("PATCH", ratings+"/"+rid, ownerToken, map[string]any{"owner": other.Id}, 404)
-	request("PATCH", ratings+"/"+rid, modToken, map[string]any{"rating": 1}, 404)
-	request("PATCH", ratings+"/"+rid, ownerToken, map[string]any{"created": "2000-01-01 00:00:00.000Z"}, 400)
-	request("PATCH", ratings+"/"+rid, ownerToken, map[string]any{"rating": 5}, 200)
+	request("PATCH", ratings+"/"+rid, ownerToken, withCoords(map[string]any{"facility_id": "zero"}), 404)
+	request("PATCH", ratings+"/"+rid, ownerToken, withCoords(map[string]any{"owner": other.Id}), 404)
+	request("PATCH", ratings+"/"+rid, modToken, withCoords(map[string]any{"rating": 1}), 404)
+	request("PATCH", ratings+"/"+rid, ownerToken, withCoords(map[string]any{"created": "2000-01-01 00:00:00.000Z"}), 400)
+	result := request("PATCH", ratings+"/"+rid, ownerToken, map[string]any{"rating": 5}, 400)
+	if result["data"].(map[string]any)["latitude"].(map[string]any)["code"] != "location_required" {
+		t.Fatalf("update location: %v", result)
+	}
+	readback := request("GET", ratings+"/"+rid, "", nil, 200)
+	if readback["rating"] != float64(4) || readback["latitude"] != nil || readback["longitude"] != nil || readback["accuracy"] != nil {
+		t.Fatalf("rating readback: %v", readback)
+	}
+	request("PATCH", ratings+"/"+rid, ownerToken, withCoords(map[string]any{"rating": 5, "latitude": 33.74945}), 200)
+	superRating := request("POST", ratings, superToken, map[string]any{"owner": other.Id, "facility_id": "missing", "rating": 3}, 200)
+	request("DELETE", ratings+"/"+superRating["id"].(string), superToken, nil, 204)
 	c := request("POST", comments, ownerToken, map[string]any{"owner": owner.Id, "facility_id": "missing", "body": "hello"}, 200)
 	cid := c["id"].(string)
 	list := request("GET", comments, "", nil, 200)
@@ -771,7 +805,7 @@ func TestCommunityPermissions(t *testing.T) {
 	request("PATCH", comments+"/"+unverifiedComment.Id, unverifiedToken, map[string]any{"body": "changed"}, 404)
 	request("DELETE", comments+"/"+unverifiedComment.Id, unverifiedToken, nil, 404)
 	request("DELETE", ratings+"/"+rid, unverifiedAdminToken, nil, 404)
-	detail := request("GET", "/api/inspect/facilities/missing", "", nil, 200)
+	detail := request("GET", "/api/inspect/facilities/pin", "", nil, 200)
 	aggregate := detail["community"].(map[string]any)
 	if aggregate["ratingCount"] != float64(1) || aggregate["ratingAverage"] != float64(5) {
 		t.Fatalf("aggregate: %v", aggregate)
@@ -779,7 +813,7 @@ func TestCommunityPermissions(t *testing.T) {
 	request("PATCH", users+"/"+mod.Id, adminToken, map[string]any{"role": "user"}, 200)
 	request("DELETE", ratings+"/"+rid, modToken, nil, 404)
 	request("DELETE", ratings+"/"+rid, adminToken, nil, 204)
-	detail = request("GET", "/api/inspect/facilities/missing", "", nil, 200)
+	detail = request("GET", "/api/inspect/facilities/pin", "", nil, 200)
 	aggregate = detail["community"].(map[string]any)
 	if aggregate["ratingCount"] != float64(0) || aggregate["ratingAverage"] != nil {
 		t.Fatalf("aggregate after delete: %v", aggregate)
