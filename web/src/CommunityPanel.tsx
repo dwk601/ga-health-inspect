@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { ClientResponseError, type RecordModel } from 'pocketbase'
 import { pb, errorMessage, refreshAuth } from './api'
+import { geolocationFailureMessage } from './geolocation'
 import type { Contribution } from './types'
 
 type Item = Contribution & RecordModel
@@ -58,9 +59,9 @@ export function CommunityPanel({ facilityId, mapped, user, refresh, onSignIn }: 
       if (generation.current !== current) return
       if (kind === 'ratings' && !(error instanceof ClientResponseError)) {
         const code = typeof error === 'object' && error && 'code' in error ? error.code : undefined
-        setMessage(error instanceof Error ? error.message : code === 1 ? 'Location permission was denied. Enable location for this site in your browser settings and try again.' : code === 3 ? 'Finding your location timed out. Try again.' : 'Your location is unavailable. Check your device location settings and try again.')
+        setMessage(error instanceof Error ? error.message : geolocationFailureMessage(code))
       } else { setMessage(errorMessage(error, kind === 'ratings' ? 'save your rating' : 'post your comment', kind === 'ratings' && !!own, true)); void refreshAuth() }
-    } finally { if (generation.current === current) { pending(false); setCheckingLocation(false) } }
+    } finally { if (generation.current === current) { pending(false); if (kind === 'ratings') setCheckingLocation(false) } }
   }
   async function remove(kind: 'ratings' | 'comments', item: Item) {
     if (!window.confirm(`Remove this ${kind === 'ratings' ? 'rating' : 'comment'}?`)) return
@@ -107,7 +108,7 @@ export function CommunityPanel({ facilityId, mapped, user, refresh, onSignIn }: 
     </div> : <div className="notice contribute-prompt">{user
       ? <p>Verify your email to post a rating or comment. <button className="text-button" onClick={resendVerification}>Resend verification email</button></p>
       : <><p>Sign in with a verified email to rate this place or leave a comment.</p><button onClick={onSignIn}>Sign in to contribute</button></>}</div>}
-    <p role="status" className="form-status">{checkingLocation ? 'Checking location…' : message || loadError || (!loaded ? 'Loading visitor contributions…' : '')}</p>
+    <p role="status" className="form-status">{message || (checkingLocation ? 'Checking location…' : loadError || (!loaded ? 'Loading visitor contributions…' : ''))}</p>
 
     <h4>Ratings{ratings.length > 0 && <span className="count">{ratings.length}</span>}</h4>
     {loaded && ratings.length === 0 && <p className="muted">No ratings yet.</p>}

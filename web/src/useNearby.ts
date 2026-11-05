@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { lookupFacilities } from './api'
+import { geolocationFailureMessage } from './geolocation'
 import type { Facility, Point, Snapshot } from './types'
 
 export type Origin = { coordinates: [number, number]; accuracy: number; sequence: number }
@@ -52,7 +53,7 @@ export function useNearby(snapshot: Snapshot | null, permit: string) {
     }, failure => {
       if (sequence.current !== current) return
       setLocating(false)
-      setError(failure.code === 1 ? 'Location permission was denied. Enable location for this site in your browser settings and try again.' : failure.code === 3 ? 'Finding your location timed out. Try again.' : 'Your location is unavailable. Check your device location settings and try again.')
+      setError(geolocationFailureMessage(failure.code))
     }, { maximumAge: 0, timeout: 10000, enableHighAccuracy: false })
   }, [])
   useEffect(() => () => { sequence.current++ }, [])

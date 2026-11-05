@@ -4,13 +4,12 @@ import (
 	"context"
 	"math"
 	"net/http"
-
-	validation "ganigeorgiev.com/pocketbase/ozzo-validation/v4"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 
+	validation "ganigeorgiev.com/pocketbase/ozzo-validation/v4"
 	"ganigeorgiev.com/pocketbase/pocketbase/core"
 )
 
@@ -96,6 +95,39 @@ func Register(app core.App) {
 	})
 }
 
+const (
+	maxLocationAccuracyMeters = 100
+	maxFacilityDistanceMeters = 150
+	earthRadiusMeters         = 6371000
+)
+
+func requireOnSite(body map[string]any, pin []float64) error {
+	fail := func(field, code, message string) error {
+		return validation.Errors{field: validation.NewError(code, message)}
+	}
+	if len(pin) != 2 {
+		return fail("latitude", "location_unmapped", "This facility has no usable map location.")
+	}
+	values := make([]float64, 3)
+	for i, field := range []string{"latitude", "longitude", "accuracy"} {
+		v, ok := body[field].(float64)
+		if !ok || math.IsNaN(v) || math.IsInf(v, 0) || (i == 0 && math.Abs(v) > 90) || (i == 1 && math.Abs(v) > 180) || (i == 2 && v < 0) {
+			return fail(field, "location_required", "A valid current location is required.")
+		}
+		values[i] = v
+	}
+	if values[2] > maxLocationAccuracyMeters {
+		return fail("accuracy", "location_inaccurate", "Location is not accurate enough.")
+	}
+	const radians = math.Pi / 180
+	dlat, dlon := (values[0]-pin[1])*radians, (values[1]-pin[0])*radians
+	h := math.Pow(math.Sin(dlat/2), 2) + math.Cos(values[0]*radians)*math.Cos(pin[1]*radians)*math.Pow(math.Sin(dlon/2), 2)
+	if 2*earthRadiusMeters*math.Asin(math.Sqrt(math.Min(1, h))) > maxFacilityDistanceMeters {
+		return fail("latitude", "location_too_far", "You must be at the facility to rate it.")
+	}
+	return nil
+}
+
 // RegisterFacilityValidation checks source existence before contribution writes.
 func RegisterFacilityValidation(app core.App, location func(context.Context, string) (bool, []float64, error)) {
 	validate := func(e *core.RecordRequestEvent) error {
@@ -107,7 +139,7 @@ func RegisterFacilityValidation(app core.App, location func(context.Context, str
 		defer cancel()
 		found, pin, err := location(ctx, id)
 		if err != nil {
-			e.App.Logger().Error("Facility existence lookup failed", "error", err)
+			e.App.Logger().Error("Facility location lookup failed", "error", err)
 			return e.Error(http.StatusServiceUnavailable, "Inspection data unavailable", nil)
 		}
 		if !found {
@@ -118,28 +150,8 @@ func RegisterFacilityValidation(app core.App, location func(context.Context, str
 			if err != nil {
 				return err
 			}
-			fail := func(field, code, message string) error {
-				return e.BadRequestError("Location validation failed", validation.Errors{field: validation.NewError(code, message)})
-			}
-			if len(pin) != 2 {
-				return fail("latitude", "location_unmapped", "This facility has no usable map location.")
-			}
-			values := make([]float64, 3)
-			for i, field := range []string{"latitude", "longitude", "accuracy"} {
-				v, ok := info.Body[field].(float64)
-				if !ok || math.IsNaN(v) || math.IsInf(v, 0) || (i == 0 && math.Abs(v) > 90) || (i == 1 && math.Abs(v) > 180) || (i == 2 && v < 0) {
-					return fail(field, "location_required", "A valid current location is required.")
-				}
-				values[i] = v
-			}
-			if values[2] > 100 {
-				return fail("accuracy", "location_inaccurate", "Location is not accurate enough.")
-			}
-			const radians = math.Pi / 180
-			dlat, dlon := (values[0]-pin[1])*radians, (values[1]-pin[0])*radians
-			h := math.Pow(math.Sin(dlat/2), 2) + math.Cos(values[0]*radians)*math.Cos(pin[1]*radians)*math.Pow(math.Sin(dlon/2), 2)
-			if 2*6371000*math.Asin(math.Sqrt(math.Min(1, h))) > 150 {
-				return fail("latitude", "location_too_far", "You must be at the facility to rate it.")
+			if err := requireOnSite(info.Body, pin); err != nil {
+				return e.BadRequestError("Location validation failed", err)
 			}
 		}
 		return e.Next()
