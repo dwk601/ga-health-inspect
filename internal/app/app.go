@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"mime"
@@ -104,12 +105,13 @@ func Register(app core.App) {
 	})
 }
 
-// redirectPlainHTTP sends public http:// visitors to https://. Cloudflare Flexible
-// SSL connects to the origin over HTTP and sets X-Forwarded-Proto from the
-// visitor scheme, so redirecting every HTTP connection would loop. Health checks
-// call the container directly and do not set that header.
+// redirectPlainHTTP sends public http:// visitors to https://.
+// Cloudflare Flexible SSL connects to the origin over HTTP, and Traefik then
+// rewrites X-Forwarded-Proto to that connection scheme, so it is http for both
+// http and https visitors. CF-Visitor still carries the visitor scheme.
+// Health checks call the container directly and do not set that header.
 func redirectPlainHTTP(e *core.RequestEvent) bool {
-	if e.Request.Header.Get("X-Forwarded-Proto") != "http" {
+	if cloudflareVisitorScheme(e.Request) != "http" {
 		return false
 	}
 	switch e.Request.URL.Path {
@@ -122,4 +124,18 @@ func redirectPlainHTTP(e *core.RequestEvent) bool {
 	}
 	http.Redirect(e.Response, e.Request, "https://"+host+e.Request.URL.RequestURI(), http.StatusPermanentRedirect)
 	return true
+}
+
+func cloudflareVisitorScheme(r *http.Request) string {
+	raw := r.Header.Get("CF-Visitor")
+	if raw == "" {
+		return ""
+	}
+	var visitor struct {
+		Scheme string `json:"scheme"`
+	}
+	if err := json.Unmarshal([]byte(raw), &visitor); err != nil {
+		return ""
+	}
+	return strings.ToLower(visitor.Scheme)
 }

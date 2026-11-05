@@ -124,22 +124,23 @@ func TestPlainHTTPRedirect(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases := []struct {
-		proto string
-		path  string
-		want  int
+		visitor string
+		path    string
+		want    int
 	}{
-		{proto: "http", path: "/", want: http.StatusPermanentRedirect},
-		{proto: "http", path: "/api/health", want: http.StatusOK},
-		{proto: "https", path: "/", want: http.StatusOK},
-		{proto: "", path: "/", want: http.StatusOK},
+		{visitor: "{\"scheme\":\"http\"}", path: "/", want: http.StatusPermanentRedirect},
+		{visitor: "{\"scheme\":\"http\"}", path: "/api/health", want: http.StatusOK},
+		{visitor: "{\"scheme\":\"https\"}", path: "/", want: http.StatusOK},
+		{visitor: "", path: "/", want: http.StatusOK},
 	}
 	for _, tc := range cases {
 		req, err := http.NewRequest(http.MethodGet, server.URL+tc.path, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if tc.proto != "" {
-			req.Header.Set("X-Forwarded-Proto", tc.proto)
+		req.Header.Set("X-Forwarded-Proto", "http")
+		if tc.visitor != "" {
+			req.Header.Set("CF-Visitor", tc.visitor)
 		}
 		res, err := client.Do(req)
 		if err != nil {
@@ -147,7 +148,7 @@ func TestPlainHTTPRedirect(t *testing.T) {
 		}
 		res.Body.Close()
 		if res.StatusCode != tc.want {
-			t.Fatalf("%s %s: status %d, want %d", tc.proto, tc.path, res.StatusCode, tc.want)
+			t.Fatalf("%s %s: status %d, want %d", tc.visitor, tc.path, res.StatusCode, tc.want)
 		}
 		if tc.want == http.StatusPermanentRedirect {
 			got, err := res.Location()
