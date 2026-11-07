@@ -194,6 +194,17 @@ func (s *store) location(ctx context.Context, id string) (bool, []float64, error
 	return err == nil, coordinates(placeURL), err
 }
 
+// State portal and GNR inspections share one history shape; GNR observations become violations.
+const inspectionsSQL = `SELECT data FROM (
+ SELECT i.inspection_date AS day, i.source_id::text AS sort_id, json_build_object('id', i.source_id::text, 'inspectionDate', i.inspection_date, 'purpose', i.purpose, 'score', i.score, 'grade', NULLIF(i.report_fields->>'grade', ''), 'timeIn', NULLIF(i.report_fields->>'time_in', ''), 'timeOut', NULLIF(i.report_fields->>'time_out', ''), 'comments', NULL, 'inspector', i.inspector, 'printableUrl', i.printable_url,
+  'violations', COALESCE((SELECT json_agg(json_build_object('sourceKey',v.source_key,'codeTitle',v.code_title,'regulation',v.regulation,'points',v.points,'corrected',v.corrected,'repeat',v.repeat,'notes',v.notes) ORDER BY v.source_key) FROM public.current_violations v WHERE v.facility_id=i.facility_id AND v.inspection_id=i.source_id), '[]'::json)) AS data
+ FROM public.inspections i WHERE i.facility_id=$1
+ UNION ALL
+ SELECT g.inspection_date, g.source_id, json_build_object('id', g.source_id, 'inspectionDate', g.inspection_date, 'purpose', concat_ws(' · ', g.purpose, g.inspection_type), 'score', g.score, 'grade', g.grade, 'timeIn', g.time_in::text, 'timeOut', NULL, 'comments', NULLIF(btrim(g.comments), ''), 'inspector', NULL, 'printableUrl', 'https://inspections.myhealthdepartment.com/gwinnett-ga/inspection/?inspectionID=' || g.source_id,
+  'violations', COALESCE((SELECT json_agg(json_build_object('sourceKey',o.n::text,'codeTitle',substring(o.text from '^([0-9A-Za-z-]+):'),'regulation',NULL,'points',NULL,'corrected',NULL,'repeat',NULL,'notes',NULLIF(btrim(regexp_replace(o.text, '^[0-9A-Za-z-]+:', '')), '')) ORDER BY o.n) FROM jsonb_array_elements_text(g.observations) WITH ORDINALITY o(text, n)), '[]'::json))
+ FROM public.gnr_inspections g WHERE g.facility_id=$1
+) history ORDER BY day DESC NULLS LAST, lpad(sort_id, 40, '0') DESC LIMIT 500`
+
 func (s *store) detail(ctx context.Context, id string) (*detailResult, error) {
 	if s.pool == nil {
 		return nil, errors.New("source unavailable")
@@ -202,7 +213,7 @@ func (s *store) detail(ctx context.Context, id string) (*detailResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT json_build_object('id', i.source_id::text, 'reportTemplate', i.report_template, 'inspectionDate', i.inspection_date, 'purpose', i.purpose, 'score', i.score, 'inspector', i.inspector, 'printableUrl', i.printable_url, 'violations', COALESCE((SELECT json_agg(json_build_object('sourceKey',v.source_key,'codeTitle',v.code_title,'regulation',v.regulation,'points',v.points,'corrected',v.corrected,'repeat',v.repeat,'notes',v.notes) ORDER BY v.source_key) FROM public.current_violations v WHERE v.facility_id=i.facility_id AND v.inspection_id=i.source_id), '[]'::json)) FROM public.inspections i WHERE i.facility_id=$1 ORDER BY i.inspection_date DESC NULLS LAST, i.source_id DESC LIMIT 500`, id)
+	rows, err := s.pool.Query(ctx, inspectionsSQL, id)
 	if err != nil {
 		return nil, err
 	}

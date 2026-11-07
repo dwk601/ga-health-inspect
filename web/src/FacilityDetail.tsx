@@ -2,9 +2,9 @@ import { useCallback } from 'react'
 import type { RecordModel } from 'pocketbase'
 import { ArrowLeft, ExternalLink, MapPin, Phone } from 'lucide-react'
 import { CommunityPanel } from './CommunityPanel'
-import { formatDate } from './format'
+import { formatDate, formatTime } from './format'
 import { facilityTitle, officialName } from './facilityName'
-import type { Detail } from './types'
+import type { Detail, Inspection } from './types'
 import type { LocationFix } from './geolocation'
 
 function safeLink(value: string | null) {
@@ -36,6 +36,15 @@ function Contact({ facility }: { facility: Detail['facility'] }) {
       )}
     </div>
   )
+}
+
+function visitDetails(inspection: Inspection) {
+  const visit = [formatTime(inspection.timeIn), formatTime(inspection.timeOut)].filter(Boolean).join('–')
+  return [
+    inspection.grade && `Grade ${inspection.grade}`,
+    visit,
+    inspection.inspector && `Inspector ${inspection.inspector}`,
+  ].filter(Boolean).join(' · ')
 }
 
 export function FacilityDetail({
@@ -137,13 +146,14 @@ export function FacilityDetail({
                           {formatDate(i.inspectionDate) ?? 'Date unavailable'}
                         </strong>
                         <p>{i.purpose || 'Inspection'}</p>
+                        {visitDetails(i) && <p>{visitDetails(i)}</p>}
                       </div>
                       <span className="score">
                         <span className="sr-only">Score </span>
                         {i.score ?? '—'}
                       </span>
                     </div>
-                    {(report || i.violations.length > 0) && (
+                    {(report || i.violations.length > 0 || i.comments) && (
                       <div className="inspection-extras">
                         {i.violations.length > 0 && (
                           <details>
@@ -160,6 +170,12 @@ export function FacilityDetail({
                                 </li>
                               ))}
                             </ul>
+                          </details>
+                        )}
+                        {i.comments && (
+                          <details>
+                            <summary>Inspector comments</summary>
+                            <p>{i.comments}</p>
                           </details>
                         )}
                         {report && (

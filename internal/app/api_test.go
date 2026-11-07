@@ -407,6 +407,10 @@ func TestInspectionAPI(t *testing.T) {
 	if code != 200 || !strings.Contains(string(detail), "123456789012345678") {
 		t.Fatalf("numeric id %d %s", code, detail)
 	}
+	code, _, detail = request(server, "/api/inspect/facilities/gnr:example", nil)
+	if code != 200 || !strings.Contains(string(detail), `"id":"GNR-EXAMPLE"`) || !strings.Contains(string(detail), "Example county observation") || !strings.Contains(string(detail), `"grade":"B"`) {
+		t.Fatalf("county detail %d %s", code, detail)
+	}
 	if _, err = admin.Exec(ctx, `INSERT INTO public.etl_runs (started,finished,status,options,next_page) VALUES (now(), '2098-01-01', 'failed', '{}', 1)`); err != nil {
 		t.Fatal(err)
 	}

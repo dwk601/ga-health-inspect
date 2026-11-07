@@ -644,6 +644,7 @@ textarea {
 .inspection-extras details p {
   margin: 0.2rem 0 0;
   color: var(--muted-foreground);
+  white-space: pre-line;
 }
 
 /* Community */

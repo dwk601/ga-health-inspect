@@ -3,6 +3,6 @@ export type MapArea = { bounds: [[number, number], [number, number]]; center: [n
 export type Point = { id: string; permitType: string | null; coordinates: [number, number] }
 export type Snapshot = { points: Point[]; permitChoices: string[]; generatedAt: string | null }
 export type Violation = { sourceKey: string; codeTitle: string | null; regulation: string | null; points: number | null; corrected: boolean | null; repeat: boolean | null; notes: string | null }
-export type Inspection = { id: string; inspectionDate: string | null; purpose: string | null; score: number | null; inspector: string | null; printableUrl: string | null; violations: Violation[] }
+export type Inspection = { id: string; inspectionDate: string | null; purpose: string | null; score: number | null; grade: string | null; timeIn: string | null; timeOut: string | null; comments: string | null; inspector: string | null; printableUrl: string | null; violations: Violation[] }
 export type Detail = { facility: Facility; inspections: Inspection[]; community: { ratingAverage: number | null; ratingCount: number } }
 export type Contribution = { id: string; owner: string; facility_id: string; authorName: string; rating?: number; body?: string; created: string }
