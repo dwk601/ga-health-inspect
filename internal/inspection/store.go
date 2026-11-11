@@ -2,8 +2,10 @@ package inspection
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/url"
 	"os"
@@ -194,13 +196,17 @@ func (s *store) location(ctx context.Context, id string) (bool, []float64, error
 	return err == nil, coordinates(placeURL), err
 }
 
-// State portal and GNR inspections share one history shape; GNR observations become violations.
+// Findings completeness is independent of printable-report enrichment and ETL generation.
 const inspectionsSQL = `SELECT data FROM (
  SELECT i.inspection_date AS day, i.source_id::text AS sort_id, json_build_object('id', i.source_id::text, 'inspectionDate', i.inspection_date, 'purpose', i.purpose, 'score', i.score, 'grade', NULLIF(i.report_fields->>'grade', ''), 'timeIn', NULLIF(i.report_fields->>'time_in', ''), 'timeOut', NULLIF(i.report_fields->>'time_out', ''), 'comments', NULL, 'inspector', i.inspector, 'printableUrl', i.printable_url,
+  'recordFingerprint', md5(to_jsonb(i)::text),
+  'evidence', json_build_object('source', 'state', 'findingsStatus', CASE WHEN jsonb_typeof(i.raw->'violations') = 'object' THEN CASE WHEN NOT EXISTS (SELECT 1 FROM jsonb_each(i.raw->'violations') r WHERE NOT EXISTS (SELECT 1 FROM public.current_violations v WHERE v.facility_id=i.facility_id AND v.inspection_id=i.source_id AND v.source_key=r.key AND v.raw=r.value)) AND (SELECT count(*) FROM public.current_violations v WHERE v.facility_id=i.facility_id AND v.inspection_id=i.source_id) = (SELECT count(*) FROM jsonb_object_keys(i.raw->'violations')) THEN 'available' ELSE 'incomplete' END ELSE 'unavailable' END, 'findingsAttemptedAt', NULL, 'reportStatus', CASE WHEN i.report_error IS NOT NULL THEN CASE WHEN i.report_fields IS NOT NULL THEN 'refresh_failed' ELSE 'failed' END WHEN i.report_fields IS NOT NULL THEN 'available' WHEN i.report_fetched_at IS NOT NULL THEN 'failed' ELSE 'not_fetched' END, 'reportAttemptedAt', i.report_fetched_at),
   'violations', COALESCE((SELECT json_agg(json_build_object('sourceKey',v.source_key,'codeTitle',v.code_title,'regulation',v.regulation,'points',v.points,'corrected',v.corrected,'repeat',v.repeat,'notes',v.notes) ORDER BY v.source_key) FROM public.current_violations v WHERE v.facility_id=i.facility_id AND v.inspection_id=i.source_id), '[]'::json)) AS data
  FROM public.inspections i WHERE i.facility_id=$1
  UNION ALL
  SELECT g.inspection_date, g.source_id, json_build_object('id', g.source_id, 'inspectionDate', g.inspection_date, 'purpose', concat_ws(' · ', g.purpose, g.inspection_type), 'score', g.score, 'grade', g.grade, 'timeIn', g.time_in::text, 'timeOut', NULL, 'comments', NULLIF(btrim(g.comments), ''), 'inspector', NULL, 'printableUrl', 'https://inspections.myhealthdepartment.com/gwinnett-ga/inspection/?inspectionID=' || g.source_id,
+  'recordFingerprint', md5(to_jsonb(g)::text),
+  'evidence', json_build_object('source', 'gnr', 'findingsStatus', CASE WHEN g.detail_fetched_at IS NULL THEN CASE WHEN g.observations IS NOT NULL THEN 'pending_refresh' ELSE 'not_fetched' END WHEN g.detail_error IS NOT NULL THEN CASE WHEN g.observations IS NOT NULL THEN 'refresh_failed' ELSE 'failed' END WHEN jsonb_typeof(g.observations) = 'array' THEN 'available' ELSE 'unavailable' END, 'findingsAttemptedAt', g.detail_fetched_at, 'reportStatus', 'external', 'reportAttemptedAt', NULL),
   'violations', COALESCE((SELECT json_agg(json_build_object('sourceKey',o.n::text,'codeTitle',substring(o.text from '^([0-9A-Za-z-]+):'),'regulation',NULL,'points',NULL,'corrected',NULL,'repeat',NULL,'notes',NULLIF(btrim(regexp_replace(o.text, '^[0-9A-Za-z-]+:', '')), '')) ORDER BY o.n) FROM jsonb_array_elements_text(g.observations) WITH ORDINALITY o(text, n)), '[]'::json))
  FROM public.gnr_inspections g WHERE g.facility_id=$1
 ) history ORDER BY day DESC NULLS LAST, lpad(sort_id, 40, '0') DESC LIMIT 500`
@@ -222,6 +228,17 @@ func (s *store) detail(ctx context.Context, id string) (*detailResult, error) {
 	for rows.Next() {
 		var data []byte
 		if err := rows.Scan(&data); err != nil {
+			return nil, err
+		}
+		var record map[string]json.RawMessage
+		if err := json.Unmarshal(data, &record); err != nil {
+			return nil, err
+		}
+		hash := fmt.Sprintf("%x", sha256.Sum256(data))
+		delete(record, "recordFingerprint")
+		record["contentHash"], _ = json.Marshal(hash)
+		data, err = json.Marshal(record)
+		if err != nil {
 			return nil, err
 		}
 		inspections = append(inspections, data)

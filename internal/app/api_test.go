@@ -411,6 +411,64 @@ func TestInspectionAPI(t *testing.T) {
 	if code != 200 || !strings.Contains(string(detail), `"id":"GNR-EXAMPLE"`) || !strings.Contains(string(detail), "Example county observation") || !strings.Contains(string(detail), `"grade":"B"`) {
 		t.Fatalf("county detail %d %s", code, detail)
 	}
+	func() {
+		_, err := admin.Exec(ctx, `INSERT INTO public.facilities(source_id,raw) VALUES ('evidence-test','{}');
+INSERT INTO public.inspections(facility_id,source_id,report_template,raw,violations_hash,report_fetched_at,report_error) VALUES ('evidence-test',1,'test','{"violations":{"a":["Title","Rule"]}}','snap','2025-01-01','private failure');
+INSERT INTO public.violations(facility_id,inspection_id,snapshot_hash,source_key,raw,corrected,repeat) VALUES ('evidence-test',1,'snap','a','["Title","Rule"]',true,true);
+INSERT INTO public.gnr_inspections(source_id,facility_id,inspection_date,observations,raw,detail_fetched_at,detail_error) VALUES
+('unfetched','evidence-test','2025-01-01',NULL,'{}',NULL,NULL),
+('empty','evidence-test','2025-01-01','[]','{}','2025-01-01',NULL),
+('failed','evidence-test','2025-01-01',NULL,'{}','2025-01-01','private failure'),
+('retained','evidence-test','2025-01-01','["Old"]','{}','2025-01-01','private failure'),
+('changed','evidence-test','2025-01-01','["Old"]','{}',NULL,NULL)`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			_, err := admin.Exec(ctx, `DELETE FROM public.violations WHERE facility_id='evidence-test'; DELETE FROM public.inspections WHERE facility_id='evidence-test'; DELETE FROM public.gnr_inspections WHERE facility_id='evidence-test'; DELETE FROM public.facilities WHERE source_id='evidence-test'`)
+			if err != nil {
+				t.Error(err)
+			}
+		}()
+		code, _, body := request(server, "/api/inspect/facilities/evidence-test", nil)
+		var result struct {
+			Inspections []struct {
+				ID       string `json:"id"`
+				Hash     string `json:"contentHash"`
+				Evidence struct {
+					Status  string  `json:"findingsStatus"`
+					Attempt *string `json:"findingsAttemptedAt"`
+					Report  string  `json:"reportStatus"`
+				} `json:"evidence"`
+				Violations []struct {
+					Corrected *bool `json:"corrected"`
+					Repeat    *bool `json:"repeat"`
+				} `json:"violations"`
+			} `json:"inspections"`
+		}
+		if err := json.Unmarshal(body, &result); err != nil || code != 200 || len(result.Inspections) != 6 || bytes.Contains(body, []byte("private failure")) {
+			t.Fatalf("evidence: %d %s", code, body)
+		}
+		want := map[string]string{"1": "available", "unfetched": "not_fetched", "empty": "available", "failed": "failed", "retained": "refresh_failed", "changed": "pending_refresh"}
+		for _, i := range result.Inspections {
+			if i.Evidence.Status != want[i.ID] || len(i.Hash) != 64 {
+				t.Errorf("evidence %s: %+v", i.ID, i)
+			}
+			if i.ID == "changed" && i.Evidence.Attempt != nil {
+				t.Error("invented refresh timestamp")
+			}
+			if i.ID == "1" && (i.Evidence.Report != "failed" || len(i.Violations) != 1 || i.Violations[0].Corrected == nil || !*i.Violations[0].Corrected || i.Violations[0].Repeat == nil || !*i.Violations[0].Repeat) {
+				t.Errorf("state flags/report: %+v", i)
+			}
+		}
+		if _, err := admin.Exec(ctx, `UPDATE public.inspections SET violations_hash='missing' WHERE facility_id='evidence-test'`); err != nil {
+			t.Fatal(err)
+		}
+		_, _, changed := request(server, "/api/inspect/facilities/evidence-test", nil)
+		if bytes.Equal(body, changed) || !bytes.Contains(changed, []byte(`"findingsStatus":"incomplete"`)) {
+			t.Fatalf("snapshot change: %s", changed)
+		}
+	}()
 	if _, err = admin.Exec(ctx, `INSERT INTO public.etl_runs (started,finished,status,options,next_page) VALUES (now(), '2098-01-01', 'failed', '{}', 1)`); err != nil {
 		t.Fatal(err)
 	}

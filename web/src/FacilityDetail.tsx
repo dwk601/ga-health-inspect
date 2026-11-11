@@ -38,6 +38,20 @@ function Contact({ facility }: { facility: Detail['facility'] }) {
   )
 }
 
+export function FindingsStatus({ inspection }: { inspection: Inspection }) {
+  const status = inspection.evidence.findingsStatus
+  const copy = {
+    available: inspection.violations.length ? 'Findings available for this inspection.' : 'The source records no findings for this inspection.',
+    incomplete: 'Some findings may be missing from this inspection snapshot.',
+    unavailable: 'Findings completeness is unavailable.',
+    not_fetched: 'Findings have not been retrieved.',
+    failed: 'Findings could not be retrieved.',
+    refresh_failed: 'Refresh failed. These are retained findings, not confirmed current to this listing.',
+    pending_refresh: 'The listing changed. Retained findings are awaiting refresh.',
+  }
+  return <p className="evidence-status">{inspection.evidence.source === 'gnr' ? 'County source. ' : 'State source. '}{copy[status]}</p>
+}
+
 function visitDetails(inspection: Inspection) {
   const visit = [formatTime(inspection.timeIn), formatTime(inspection.timeOut)].filter(Boolean).join('–')
   return [
@@ -153,12 +167,14 @@ export function FacilityDetail({
                         {i.score ?? '—'}
                       </span>
                     </div>
+                    <FindingsStatus inspection={i} />
+                    {i.evidence.reportStatus !== 'available' && i.evidence.reportStatus !== 'external' && <p className="evidence-status">Printable report: {i.evidence.reportStatus === 'not_fetched' ? 'not retrieved' : i.evidence.reportStatus === 'refresh_failed' ? 'refresh failed; retained report fields shown' : 'retrieval failed'}.{i.evidence.reportAttemptedAt && ` Last attempt ${new Date(i.evidence.reportAttemptedAt).toLocaleString()}.`}</p>}
                     {(report || i.violations.length > 0 || i.comments) && (
                       <div className="inspection-extras">
                         {i.violations.length > 0 && (
                           <details>
                             <summary>
-                              Current violations ({i.violations.length})
+                              Findings from this inspection ({i.violations.length})
                             </summary>
                             <ul>
                               {i.violations.map((v) => (
@@ -167,6 +183,8 @@ export function FacilityDetail({
                                     {v.codeTitle || v.regulation || 'Violation'}
                                   </strong>
                                   {v.notes && <p>{v.notes}</p>}
+                                  {v.corrected === true && <p>Corrected during inspection</p>}
+                                  {v.repeat === true && <p>Repeat finding</p>}
                                 </li>
                               ))}
                             </ul>

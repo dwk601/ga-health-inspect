@@ -152,9 +152,10 @@ h2,
 h3 {
   font-weight: 650;
 }
-.muted {
+.muted, .evidence-status {
   color: var(--muted-foreground);
 }
+.evidence-status { font-size: 0.875rem; margin-block: 0.6rem; }
 .topbar {
   min-height: 64px;
   padding: 0.6rem 1.25rem;
