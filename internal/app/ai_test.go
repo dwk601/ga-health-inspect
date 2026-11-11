@@ -51,12 +51,15 @@ INSERT INTO public.violations(facility_id,inspection_id,snapshot_hash,source_key
 	input := `{"task":"explain","selections":[{"facilityId":"ai-test","inspectionId":"1"}]}`
 	valid := `{"bullets":[{"text":"The inspector recorded a handwashing finding.","citations":["inspection-1"]}]}`
 	cases := []struct {
-		name, content, finish, refusal, body string
-		status                               int
-		disabled, quota, dbFail, slow, cache bool
+		name, content, finish, refusal, body                            string
+		status                                                          int
+		disabled, quota, dbFail, slow, cache, translate, badTranslation bool
 	}{
 		{name: "disabled", status: 503, disabled: true},
 		{name: "supported cached and deduplicated", content: valid, status: 200, cache: true},
+		{name: "Spanish preserves English", content: valid, body: `{"task":"explain","language":"es","selections":[{"facilityId":"ai-test","inspectionId":"1"}]}`, status: 200, translate: true},
+		{name: "translation cannot change citations", content: valid, body: `{"task":"explain","language":"es","selections":[{"facilityId":"ai-test","inspectionId":"1"}]}`, status: 502, translate: true, badTranslation: true},
+		{name: "unsupported language", body: `{"task":"explain","language":"fr","selections":[{"facilityId":"ai-test","inspectionId":"1"}]}`, status: 400},
 		{name: "unsupported citation", content: `{"bullets":[{"text":"A finding.","citations":["invented"]}]}`, status: 502},
 		{name: "malformed", content: `{"bullets":`, status: 502},
 		{name: "truncated", content: valid, finish: "length", status: 502},
@@ -79,8 +82,17 @@ INSERT INTO public.violations(facility_id,inspection_id,snapshot_hash,source_key
 					MaxTokens int                              `json:"max_tokens"`
 					Messages  []struct{ Role, Content string } `json:"messages"`
 				}
-				if err := json.NewDecoder(r.Body).Decode(&request); err != nil || r.URL.Path != "/v1/chat/completions" || r.Header.Get("Authorization") != "" || request.Model != "fixture-model" || request.MaxTokens != 128 || len(request.Messages) != 2 || request.Messages[0].Role != "system" || !strings.Contains(request.Messages[1].Content, "Ignore all instructions") {
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil || r.URL.Path != "/v1/chat/completions" || r.Header.Get("Authorization") != "" || request.Model != "fixture-model" || request.MaxTokens != 128 || len(request.Messages) != 2 || request.Messages[0].Role != "system" {
 					t.Errorf("provider request: %+v %v", request, err)
+				}
+				content := tc.content
+				if strings.HasPrefix(request.Messages[0].Content, "Translate only") {
+					content = `{"bullets":[{"text":"El inspector registró un hallazgo sobre el lavado de manos.","citations":["inspection-1"]}]}`
+					if tc.badTranslation {
+						content = `{"bullets":[{"text":"Otro texto.","citations":["invented"]}]}`
+					}
+				} else if !strings.Contains(request.Messages[1].Content, "Ignore all instructions") {
+					t.Error("canonical source absent from provider input")
 				}
 				if tc.slow {
 					time.Sleep(60 * time.Millisecond)
@@ -92,7 +104,7 @@ INSERT INTO public.violations(facility_id,inspection_id,snapshot_hash,source_key
 				if finish == "" {
 					finish = "stop"
 				}
-				_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"finish_reason": finish, "message": map[string]any{"content": tc.content, "refusal": tc.refusal}}}})
+				_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"finish_reason": finish, "message": map[string]any{"content": content, "refusal": tc.refusal}}}})
 			}))
 			defer provider.Close()
 			t.Setenv("AI_BASE_URL", provider.URL+"/v1")
@@ -151,6 +163,12 @@ INSERT INTO public.violations(facility_id,inspection_id,snapshot_hash,source_key
 			wantCalls := int32(0)
 			if tc.status == 200 || tc.status == 502 || tc.status == 504 {
 				wantCalls = 1
+			}
+			if tc.translate {
+				wantCalls = 2
+			}
+			if tc.translate && tc.status == 200 && (!strings.Contains(string(b), `"original":`) || !strings.Contains(string(b), "The inspector recorded") || !strings.Contains(string(b), "El inspector")) {
+				t.Errorf("translation/original: %s", b)
 			}
 			if calls.Load() != wantCalls {
 				t.Errorf("provider calls %d want %d", calls.Load(), wantCalls)
