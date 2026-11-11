@@ -1,4 +1,6 @@
-export type Facility = { id: string; name: string | null; placeName: string | null; address: string | null; phone: string | null; permitType: string | null; permitNumber: string | null; lastInspectionDate: string | null; lastInspectionScore: number | null; googlePlaces: string | null }
+export type SearchFilters = { name: string; address: string; minScore: string; maxScore: string; radius: string }
+export type SearchIntent = { name: string; address: string; permit: string; minScore: number | null; maxScore: number | null; sort: string; nearby: boolean; radius: number; clarification: string }
+export type Facility = { coordinates?: [number, number]; distanceMiles?: number; id: string; name: string | null; placeName: string | null; address: string | null; phone: string | null; permitType: string | null; permitNumber: string | null; lastInspectionDate: string | null; lastInspectionScore: number | null; googlePlaces: string | null }
 export type MapArea = { bounds: [[number, number], [number, number]]; center: [number, number] }
 export type Point = { id: string; permitType: string | null; coordinates: [number, number] }
 export type Snapshot = { points: Point[]; permitChoices: string[]; generatedAt: string | null }

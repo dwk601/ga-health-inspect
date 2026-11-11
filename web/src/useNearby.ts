@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { cachedFacilities, lookupFacilities } from './api'
+import { cachedFacilities, lookupFacilities, search } from './api'
 import { distanceMiles, geolocationFailureMessage, type LocationFix } from './geolocation'
-import type { Facility, MapArea, Point, Snapshot } from './types'
+import type { Facility, MapArea, Point, Snapshot, SearchFilters } from './types'
 
 export type Origin = LocationFix & { sequence: number }
 type Candidate = { point: Point; distance: number }
@@ -48,7 +48,7 @@ function byDistance(from: [number, number], points: Point[]): Candidate[] {
 }
 
 
-export function useNearby(snapshot: Snapshot | null, permit: string, area: MapArea | null) {
+export function useNearby(snapshot: Snapshot | null, permit: string, area: MapArea | null, filters: SearchFilters, sort: string) {
   const [active, setActive] = useState(false)
   const [origin, setOrigin] = useState<Origin | null>(null)
   const [locating, setLocating] = useState(false)
@@ -62,13 +62,19 @@ export function useNearby(snapshot: Snapshot | null, permit: string, area: MapAr
     })
     return [...new Set(local.flatMap(p => p.permitType ? [p.permitType] : []))].sort()
   }, [snapshot, area, origin])
-  const candidates = useMemo<Candidate[]>(() => {
-    if (!origin || !snapshot) return []
-    return snapshot.points.filter(p => !permit || p.permitType === permit)
-      .map(point => ({ point, distance: distanceMiles(origin.coordinates, point.coordinates) }))
-      .filter(item => item.distance <= 25)
-      .sort((a, b) => a.distance - b.distance || (a.point.id < b.point.id ? -1 : a.point.id > b.point.id ? 1 : 0)).slice(0, LIST_LIMIT)
-  }, [origin, snapshot, permit])
+  const [source, setSource] = useState<{ key: string; facilities: Facility[]; error: string } | null>(null)
+  const [retryVersion, setRetryVersion] = useState(0)
+  const sourceKey = JSON.stringify([origin?.coordinates, filters, permit, sort])
+  useEffect(() => {
+    if (!active || !origin || area) return
+    const controller = new AbortController()
+    search('', permit, sort, controller.signal, filters, origin.coordinates).then(data => {
+      if (!controller.signal.aborted) setSource({ key: sourceKey, facilities: data.facilities, error: '' })
+    }).catch(error => { if (!controller.signal.aborted) setSource({ key: sourceKey, facilities: [], error: error.message }) })
+    return () => controller.abort()
+  }, [active, origin, area, sourceKey, retryVersion, filters, permit, sort])
+  const currentSource = source?.key === sourceKey ? source : null
+  const candidates = useMemo<Candidate[]>(() => (currentSource?.facilities ?? []).flatMap(f => f.coordinates ? [{ point: { id: f.id, permitType: f.permitType, coordinates: f.coordinates }, distance: f.distanceMiles ?? 0 }] : []), [currentSource])
   const areaPoints = useMemo(() => {
     if (!area || !snapshot) return []
     return snapshot.points.filter(p => (!permit || p.permitType === permit) && inBounds(p, area))
@@ -86,7 +92,8 @@ export function useNearby(snapshot: Snapshot | null, permit: string, area: MapAr
     return pages
   }, [area, areaPoints, origin, areaLimit])
   const listCandidates = area ? areaCandidates : candidates
-  const lookup = useFacilityLookup(listCandidates, !!snapshot && (active && !!origin || !!area))
+  const areaLookup = useFacilityLookup(areaCandidates, !!snapshot && !!area)
+  const lookup = area ? areaLookup : { facilities: currentSource?.facilities ?? [], loading: active && !!origin && !currentSource, loadingMore: false, lookupError: currentSource?.error ?? '', missing: 0, retry: () => { setSource(null); setRetryVersion(v => v + 1) } }
   const exit = useCallback(() => { sequence.current++; setActive(false); setLocating(false); setOrigin(null); setError('') }, [])
   const locate = useCallback(() => {
     const current = ++sequence.current
@@ -106,7 +113,7 @@ export function useNearby(snapshot: Snapshot | null, permit: string, area: MapAr
   }, [])
   useEffect(() => () => { sequence.current++ }, [])
   return {
-    active, origin, locating, error, permitChoices, candidates: listCandidates, fitCandidates: candidates, areaCount: areaPoints.length, showMore, canLocate: window.isSecureContext && !!navigator.geolocation,
+    radius: Number(filters.radius || 25), active, origin, locating, error, permitChoices, candidates: listCandidates, fitCandidates: candidates, areaCount: areaPoints.length, showMore, canLocate: window.isSecureContext && !!navigator.geolocation,
     distances: new Map(origin ? listCandidates.map(c => [c.point.id, distanceMiles(origin.coordinates, c.point.coordinates)]) : []),
     ...lookup,
     locate, exit,

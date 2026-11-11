@@ -1,5 +1,5 @@
 import PocketBase, { BaseAuthStore, ClientResponseError } from 'pocketbase'
-import type { Detail, Facility, Snapshot } from './types'
+import type { Detail, Facility, Snapshot, SearchFilters } from './types'
 
 export const pb = new PocketBase('/')
 
@@ -34,11 +34,13 @@ export async function getPoints(): Promise<{ snapshot: Snapshot; stale: boolean 
 const searchCache = new Map<string, { expires: number; data: { facilities: Facility[] } }>()
 const facilityCache = new Map<string, { expires: number; facility: Facility | null }>()
 
-export async function search(q: string, permit: string, sort: string, signal: AbortSignal) {
-  const key = JSON.stringify([q, permit, sort])
+export async function search(q: string, permit: string, sort: string, signal: AbortSignal, filters?: SearchFilters, origin?: [number, number]) {
+  const params = new URLSearchParams({ q, permit, sort, name: filters?.name ?? '', address: filters?.address ?? '', minScore: filters?.minScore ?? '', maxScore: filters?.maxScore ?? '' })
+  if (origin) { params.set('lon', String(origin[0])); params.set('lat', String(origin[1])); params.set('radius', filters?.radius || '25') }
+  const key = params.toString()
   const cached = searchCache.get(key)
   if (cached && cached.expires > Date.now()) return cached.data
-  const data = await get<{ facilities: Facility[] }>(`/api/inspect/search?${new URLSearchParams({ q, permit, sort })}`, signal)
+  const data = await get<{ facilities: Facility[] }>(`/api/inspect/search?${params}`, signal)
   if (!signal.aborted) {
     searchCache.delete(key); searchCache.set(key, { expires: Date.now() + 300000, data })
     if (searchCache.size > 20) searchCache.delete(searchCache.keys().next().value!)

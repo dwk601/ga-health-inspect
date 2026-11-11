@@ -484,6 +484,46 @@ INSERT INTO public.gnr_inspections(source_id,facility_id,inspection_date,observa
 			t.Fatalf("snapshot change: %s", changed)
 		}
 	}()
+	func() {
+		_, err := admin.Exec(ctx, `INSERT INTO public.facilities(source_id,name,address,permit_type,last_inspection_score,raw,google_places)
+SELECT 'filter-test-'||n, CASE WHEN n=125 THEN 'Z qualifying' ELSE 'A candidate '||n END, 'Filter Lane', 'Restaurant', CASE WHEN n=125 THEN 99 ELSE 10 END, '{}', 'https://maps.example/!3d'||CASE WHEN n=125 THEN '33.9' ELSE (33.749+n*0.0001)::text END||'!4d-84.388' FROM generate_series(1,125) n;
+INSERT INTO public.facilities(source_id,name,address,permit_type,last_inspection_score,raw) VALUES ('filter-test-unmapped','Z unmapped','Filter Lane','Restaurant',99,'{}')`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if _, err := admin.Exec(ctx, `DELETE FROM public.facilities WHERE source_id LIKE 'filter-test-%'`); err != nil {
+				t.Error(err)
+			}
+		}()
+		for _, tc := range []struct {
+			query  string
+			count  int
+			first  string
+			status int
+		}{
+			{"address=Filter+Lane&permit=Restaurant&minScore=90&maxScore=100", 2, "filter-test-125", 200},
+			{"address=Filter+Lane&permit=Restaurant&minScore=90&maxScore=100&lat=33.749&lon=-84.388&radius=25", 1, "filter-test-125", 200},
+			{"address=Filter+Lane&lat=33.749&lon=-84.388&radius=25&sort=score-desc", 20, "filter-test-125", 200},
+			{"address=Filter+Lane&minScore=90&lat=33.749&lon=-84.388&radius=1", 0, "", 200},
+			{"address=Filter+Lane&maxScore=10", 100, "", 200},
+			{"name=qualifying&address=Filter+Lane", 1, "filter-test-125", 200},
+			{"name=Filter+Lane", 0, "", 200},
+			{"minScore=100&maxScore=10", 0, "", 400},
+			{"minScore=NaN", 0, "", 400},
+			{"radius=5", 0, "", 400},
+		} {
+			code, _, body := request(server, "/api/inspect/search?"+tc.query, nil)
+			var result struct {
+				Facilities []struct {
+					ID string `json:"id"`
+				} `json:"facilities"`
+			}
+			if err := json.Unmarshal(body, &result); err != nil || code != tc.status || len(result.Facilities) != tc.count || tc.first != "" && result.Facilities[0].ID != tc.first {
+				t.Errorf("authoritative filters %s: %d %s", tc.query, code, body)
+			}
+		}
+	}()
 	if _, err = admin.Exec(ctx, `INSERT INTO public.etl_runs (started,finished,status,options,next_page) VALUES (now(), '2098-01-01', 'failed', '{}', 1)`); err != nil {
 		t.Fatal(err)
 	}

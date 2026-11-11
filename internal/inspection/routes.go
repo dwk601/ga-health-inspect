@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -39,6 +41,7 @@ func Register(e *core.ServeEvent) {
 		return event.Next()
 	})
 	e.Router.POST("/api/inspect/ai/explain", s.explain).Bind(apis.SkipSuccessActivityLog())
+	e.Router.POST("/api/inspect/ai/search", s.aiSearch).Bind(apis.SkipSuccessActivityLog())
 	e.Router.GET("/api/inspect/points", s.points)
 	e.Router.GET("/api/inspect/search", s.search)
 	e.Router.GET("/api/inspect/facilities/{id}", s.detail)
@@ -49,22 +52,47 @@ func requestContext(e *core.RequestEvent) (context.Context, context.CancelFunc) 
 }
 func (s *service) search(e *core.RequestEvent) error {
 	e.Response.Header().Set("Cache-Control", "no-store")
-	query := strings.TrimSpace(e.Request.URL.Query().Get("q"))
-	permit := strings.TrimSpace(e.Request.URL.Query().Get("permit"))
-	sort := e.Request.URL.Query().Get("sort")
-	if sort != "" && sort != "score-desc" && sort != "score-asc" {
-		return e.JSON(http.StatusBadRequest, map[string]string{"error": "invalid sort"})
+	q := e.Request.URL.Query()
+	filters := searchFilters{Query: strings.TrimSpace(q.Get("q")), Name: strings.TrimSpace(q.Get("name")), Address: strings.TrimSpace(q.Get("address")), Permit: strings.TrimSpace(q.Get("permit")), Sort: q.Get("sort")}
+	for key, target := range map[string]**float64{"minScore": &filters.MinScore, "maxScore": &filters.MaxScore} {
+		if q.Has(key) && q.Get(key) != "" {
+			value, err := strconv.ParseFloat(q.Get(key), 64)
+			if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+				return aiError(e, 400, "invalid_filters")
+			}
+			*target = &value
+		}
 	}
-	if len(query) > 200 || len(permit) > 200 || !validText(query) || !validText(permit) {
-		return e.JSON(http.StatusBadRequest, map[string]string{"error": "invalid query"})
+	if q.Has("lat") || q.Has("lon") || q.Get("radius") != "" {
+		lat, err1 := strconv.ParseFloat(q.Get("lat"), 64)
+		lon, err2 := strconv.ParseFloat(q.Get("lon"), 64)
+		if err1 != nil || err2 != nil || math.IsNaN(lat) || math.IsNaN(lon) || math.Abs(lat) > 90 || math.Abs(lon) > 180 {
+			return aiError(e, 400, "nearby_requires_location")
+		}
+		filters.Origin = []float64{lon, lat}
+		filters.Radius = 25
+		if q.Get("radius") != "" {
+			radius, err := strconv.ParseFloat(q.Get("radius"), 64)
+			if err != nil {
+				return aiError(e, 400, "invalid_radius")
+			}
+			filters.Radius = radius
+		}
+	}
+	if !validFilters(filters) {
+		return aiError(e, 400, "invalid_filters")
 	}
 	ctx, cancel := requestContext(e)
 	defer cancel()
-	items, err := s.store.search(ctx, query, permit, sort)
+	items, err := s.store.search(ctx, filters)
 	if err != nil {
 		return unavailable(e, err)
 	}
-	return e.JSON(http.StatusOK, map[string]any{"facilities": items})
+	limit := 100
+	if len(filters.Origin) == 2 {
+		limit = 20
+	}
+	return e.JSON(http.StatusOK, map[string]any{"facilities": items, "limit": limit, "limited": len(items) == limit})
 }
 func (s *service) lookup(e *core.RequestEvent) error {
 	e.Response.Header().Set("Cache-Control", "no-store")

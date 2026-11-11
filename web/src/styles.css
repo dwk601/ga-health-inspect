@@ -160,7 +160,17 @@ h3 {
 .ai-explanation h3 { font-size: 1rem; margin-block: 1rem 0.5rem; }
 .ai-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .ai-citations { font-size: 0.8rem; margin-block: 0.4rem 0.8rem; }
-.ai-explanation p:empty { display: none; }
+.ai-explanation p:empty, .discovery-filters p:empty { display: none; }
+.discovery-filters { margin-block-start: 1rem; font-size: 0.875rem; }
+.discovery-filters summary { padding-block: 0.75rem; }
+.discovery-filters form { display: grid; gap: 0.6rem; margin-block: 1rem; }
+.discovery-filters form + form { border-top: 1px solid var(--border); padding-top: 1rem; }
+.discovery-filters input, .discovery-filters textarea { min-width: 0; width: 100%; min-height: 48px; padding: 0.6rem; border: 1px solid var(--control-border); border-radius: 7px; color: var(--foreground); background: var(--card); font-size: 1rem; }
+.discovery-filters textarea { min-height: 5rem; resize: vertical; }
+.discovery-filters label { font-weight: 600; }
+.discovery-filters .muted { margin-block: 0; }
+.score-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+.score-filters label { display: block; margin-bottom: 0.6rem; }
 .topbar {
   min-height: 64px;
   padding: 0.6rem 1.25rem;

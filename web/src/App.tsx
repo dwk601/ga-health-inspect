@@ -8,9 +8,10 @@ import { pb, getPoints, getDetail, search, refreshAuth } from './api'
 import { MapFailure } from './MapFailure'
 import { FacilityList } from './FacilityList'
 import { FacilityDetail } from './FacilityDetail'
+import { DiscoveryFilters } from './DiscoveryFilters'
 import { AuthPanel } from './AuthPanel'
 import { AccountLink } from './AccountLink'
-import type { Detail, Facility, MapArea, Snapshot } from './types'
+import type { Detail, Facility, MapArea, Snapshot, SearchFilters, SearchIntent } from './types'
 
 const createMapView = () => lazy(async () => {
   const { setWorkerUrl } = await import('maplibre-gl')
@@ -47,7 +48,7 @@ function useMapData() {
   return { snapshot, mapMessage, pointsLoading, retryPoints: () => setPointsVersion(v => v + 1) }
 }
 
-function useStatewideSearch(query: string, permit: string, sort: string, paused: boolean) {
+function useStatewideSearch(query: string, permit: string, sort: string, paused: boolean, filters: SearchFilters) {
   const [facilities, setFacilities] = useState<Facility[]>([])
   const [searchMessage, setSearchMessage] = useState('')
   const [searching, setSearching] = useState(true)
@@ -56,7 +57,7 @@ function useStatewideSearch(query: string, permit: string, sort: string, paused:
     const controller = new AbortController()
     setSearching(true)
     const timer = setTimeout(() => {
-      search(query, permit, sort, controller.signal).then(data => {
+      search(query, permit, sort, controller.signal, filters).then(data => {
         setFacilities(data.facilities)
         setSearchMessage('')
         setSearching(false)
@@ -67,7 +68,7 @@ function useStatewideSearch(query: string, permit: string, sort: string, paused:
       })
     }, 250)
     return () => { clearTimeout(timer); controller.abort() }
-  }, [query, permit, sort, paused])
+  }, [query, permit, sort, paused, filters])
 
   return { facilities, searchMessage, searching }
 }
@@ -118,7 +119,7 @@ function nearbyStatus(nearby: Nearby, snapshot: Snapshot | null, pointsLoading: 
     const shown = nearby.candidates.length
     return { text: nearby.areaCount > shown ? `Showing ${shown} of ${nearby.areaCount} places spread across this area.${missing}` : nearby.areaCount ? `${nearby.areaCount} ${nearby.areaCount === 1 ? 'place' : 'places'} in this area.${missing}` : 'No places in this map area.', error: false }
   }
-  if (!nearby.candidates.length) return { text: `No places found within 25 miles${permit ? ' for this type' : ''}.${accuracy}`, error: false }
+  if (!nearby.candidates.length) return { text: `No places found within ${nearby.radius} miles${permit ? ' for this type' : ''}.${accuracy}`, error: false }
   const missing = nearby.missing ? ` ${nearby.missing} nearby ${nearby.missing === 1 ? 'place is' : 'places are'} missing details and not shown.` : ''
   return { text: `${nearby.facilities.length} nearby ${nearby.facilities.length === 1 ? 'place' : 'places'} shown.${missing}${accuracy}`, error: false }
 }
@@ -145,13 +146,14 @@ function NearbyResults({ nearby, facilities, snapshot, pointsLoading, status, re
     return null
   }
   return <>
-    <p className="nearby-description">{area ? 'Places visible in the map area. Distances are straight-line, not travel distances.' : `Within 25 miles, up to ${LIST_LIMIT} places. Distances are straight-line, not travel distances.`}</p>
+    <p className="nearby-description">{area ? 'Places visible in the map area. Distances are straight-line, not travel distances.' : `Within ${nearby.radius} miles, up to ${LIST_LIMIT} places. Distances are straight-line, not travel distances.`}</p>
     <div className="nearby-status"><NearbyStatus status={status} /></div>
     {results()}
   </>
 }
 
-function Directory({ query, setQuery, permit, setPermit, sort, setSort, snapshot, facilities, searchMessage, searching, restoreId, onRestored, select, nearby, startNearby, mapMessage, pointsLoading, retryPoints, status, area, leaveArea, skipToMap }: {
+function Directory({ query, setQuery, permit, setPermit, sort, setSort, snapshot, facilities, searchMessage, searching, restoreId, onRestored, select, nearby, startNearby, mapMessage, pointsLoading, retryPoints, status, area, leaveArea, skipToMap, discovery }: {
+  discovery: ReactNode
   query: string; setQuery: (value: string) => void; permit: string; setPermit: (value: string) => void; sort: string; setSort: (value: string) => void
   snapshot: Snapshot | null; facilities: Facility[]; searchMessage: string; searching: boolean; restoreId: string | null; onRestored: () => void; select: (id: string) => void
   nearby: Nearby; startNearby: () => void; mapMessage: string; pointsLoading: boolean; retryPoints: () => void; status: ReturnType<typeof nearbyStatus>; area: boolean; leaveArea: () => void; skipToMap: () => void
@@ -193,6 +195,7 @@ function Directory({ query, setQuery, permit, setPermit, sort, setSort, snapshot
           <input id="search" type="search" aria-label="Search by name, address, or ID" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search all Georgia" autoComplete="off" />
         </div>
         <div className="discovery-actions"><button ref={nearButton} className="primary near-button" onClick={nearby.locating ? nearby.exit : startNearby}><LocateFixed size={17} aria-hidden />{nearby.locating ? 'Cancel locating' : 'Near me'}</button>{(nearby.active || area) && <button onClick={leave}>All Georgia</button>}</div>
+        {discovery}
       </div>
     </div>
     <div className="list-filters">
@@ -201,7 +204,7 @@ function Directory({ query, setQuery, permit, setPermit, sort, setSort, snapshot
     </div>
     <div className="results-heading"><span role={local ? undefined : 'status'}>{area ? 'Places in this map area' : nearby.active ? 'Nearby places' : searchMessage ? 'Search unavailable' : resultSummary(facilities.length, searching, sort)}</span></div>
     {hasList && (local || facilities.length > 0) && <button className="skip-link" onClick={skipToMap}>Skip to map</button>}
-    {local && sort && <p className="directory-notice">Score sorting reorders the shown places only.</p>}
+    {area && sort && <p className="directory-notice">Score sorting reorders the shown places only.</p>}
     {(nearby.active || area) && snapshot && mapMessage && <p className="directory-notice">{mapMessage}</p>}
     {nearby.active || area ? <NearbyResults area={area} nearby={nearby} facilities={displayed} snapshot={snapshot} pointsLoading={pointsLoading} status={status} restoreId={restoreId} onRestored={onRestored} select={select} startNearby={startNearby} leave={leave} retryPoints={retryPoints} focusNear={focusNear} /> : searchMessage ? <p className="empty" role="alert">{searchMessage}</p> : searching && !facilities.length ? null : <FacilityList facilities={facilities} restoreId={restoreId} onRestored={onRestored} onSelect={select} />}
   </>
@@ -224,22 +227,31 @@ export default function App() {
   const [query, setQuery] = useState('')
   const [permit, setPermit] = useState('')
   const [sort, setSort] = useState('')
+  const [filters, setFilters] = useState<SearchFilters>({ name: '', address: '', minScore: '', maxScore: '', radius: '25' })
+  const constrained = !!(query.trim() || permit || sort || filters.name || filters.address || filters.minScore || filters.maxScore)
   const { snapshot, mapMessage, pointsLoading, retryPoints } = useMapData()
   const [area, setArea] = useState<MapArea | null>(null)
   const [reset, setReset] = useState(0)
   const [movementVersion, setMovementVersion] = useState(0)
-  const nearby = useNearby(snapshot, permit, area)
-  const { facilities, searchMessage, searching } = useStatewideSearch(query, permit, sort, nearby.active || !!area)
-  const points = useMemo(() => (snapshot?.points || []).filter(p => !permit || p.permitType === permit), [snapshot, permit])
+  const nearby = useNearby(snapshot, permit, area, filters, sort)
+  const { facilities, searchMessage, searching } = useStatewideSearch(query, permit, sort, nearby.active || !!area, filters)
+  const points = useMemo(() => {
+    if (nearby.active && !area) return nearby.candidates.map(c => c.point)
+    if (constrained && !area) return facilities.flatMap(f => f.coordinates ? [{ id: f.id, permitType: f.permitType, coordinates: f.coordinates }] : [])
+    return (snapshot?.points || []).filter(p => !permit || p.permitType === permit)
+  }, [snapshot, permit, constrained, area, facilities, nearby.active, nearby.candidates])
   const fitPoints = useMemo(() => nearby.fitCandidates.map(c => c.point), [nearby.fitCandidates])
   const clearArea = () => { setArea(null); setMovementVersion(v => v + 1) }
   const leaveArea = () => { clearArea(); if (area || nearby.active) setReset(v => v + 1); nearby.exit() }
   const startNearby = () => { clearArea(); setRestoreId(null); setQuery(''); nearby.locate() }
   const updateQuery = (value: string) => { clearArea(); if (nearby.active) nearby.exit(); setQuery(value) }
-  const onArea = useCallback((next: MapArea) => { if (!query.trim() && !nearby.locating && (!nearby.active || nearby.origin)) setArea(next) }, [query, nearby.locating, nearby.active, nearby.origin])
+  const onArea = useCallback((next: MapArea) => { if (!(query.trim() || sort || filters.name || filters.address || filters.minScore || filters.maxScore) && !query.trim() && !nearby.locating && (!nearby.active || nearby.origin)) setArea(next) }, [query, sort, filters, nearby.locating, nearby.active, nearby.origin])
   const onRestored = useCallback(() => setRestoreId(null), [])
   const status = nearbyStatus(nearby, snapshot, pointsLoading, permit, area)
-  const selectedPoint = useMemo(() => snapshot?.points.find(p => p.id === selected), [snapshot, selected])
+  const selectedPoint = useMemo(() => {
+    const facility = currentDetail?.detail?.facility
+    return facility?.coordinates ? { id: facility.id, permitType: facility.permitType, coordinates: facility.coordinates } : snapshot?.points.find(p => p.id === selected)
+  }, [snapshot, selected, currentDetail])
   const [user, setUser] = useState<RecordModel | null>(pb.authStore.record)
   const [initialRecovery, setInitialRecovery] = useState(() => new URLSearchParams(location.search).get('resend') === 'verification')
   const [auth, setAuth] = useState(initialRecovery)
@@ -258,7 +270,7 @@ export default function App() {
     return () => media.removeEventListener('change', update)
   }, [])
   const mapSurface = !!selected || (isMobile && mobileMap)
-  const showMapStatus = (nearby.active || !!area) && mapSurface && (!!area || nearby.locating || !!nearby.error || !snapshot || nearby.loading || !!nearby.lookupError || !nearby.candidates.length || !!nearby.missing || (nearby.origin?.accuracy ?? 0) > 1000)
+  const showMapStatus = (nearby.active || !!area) && mapSurface && (nearby.locating || !!nearby.error || !snapshot || nearby.loading || !!nearby.lookupError || !nearby.candidates.length || !!nearby.missing || (nearby.origin?.accuracy ?? 0) > 1000)
   const [mapAttempt, setMapAttempt] = useState(0)
   const [LazyMapView, setLazyMapView] = useState(createMapView)
   const mapRef = useRef<HTMLDivElement>(null)
@@ -308,6 +320,11 @@ export default function App() {
     setSelected(id)
     if (id) setMobileMap(false)
   }
+  function applyIntent(intent: SearchIntent) {
+    clearArea(); setQuery(''); setPermit(intent.permit); setSort(intent.sort)
+    setFilters({ name: intent.name, address: intent.address, minScore: intent.minScore == null ? '' : String(intent.minScore), maxScore: intent.maxScore == null ? '' : String(intent.maxScore), radius: String(intent.radius || 25) })
+    if (intent.nearby) { if (!nearby.origin) nearby.locate() } else nearby.exit()
+  }
   function toggleTheme() {
     const next = theme === 'dark' ? 'light' : 'dark'
     setTheme(next)
@@ -324,7 +341,7 @@ export default function App() {
     <main className="workspace">
       <aside className={`sidebar ${mobileMap ? 'mobile-hidden' : ''}`}>
         {selected ? <FacilityDetail key={selected} id={selected} mapped={snapshot ? !!selectedPoint : undefined} coordinates={snapshot ? selectedPoint?.coordinates ?? null : undefined} origin={nearby.origin} retryMap={!snapshot && !pointsLoading ? retryPoints : null} nearby={nearby.active} onClose={() => select(null)} user={user} detail={currentDetail?.detail ?? null} error={currentDetail?.error ?? ''} load={loadDetail} onSignIn={() => setAuth(true)} /> :
-          <Directory area={!!area} leaveArea={leaveArea} query={query} setQuery={updateQuery} permit={permit} setPermit={setPermit} sort={sort} setSort={setSort} snapshot={snapshot} facilities={facilities} searchMessage={searchMessage} searching={searching} restoreId={restoreId} onRestored={onRestored} select={select} nearby={nearby} startNearby={startNearby} mapMessage={mapMessage} pointsLoading={pointsLoading} retryPoints={retryPoints} status={status} skipToMap={skipToMap} />}
+          <Directory discovery={<><DiscoveryFilters filters={filters} onFilters={next => { clearArea(); setFilters(next) }} onIntent={applyIntent} nearby={nearby.active} cancelKey={JSON.stringify([query, permit, sort, filters, selected, nearby.active, nearby.origin?.sequence])} />{constrained && !area && <p className="muted">The map shows mapped places from these results; unmapped matches stay in the list.</p>}</>} area={!!area} leaveArea={leaveArea} query={query} setQuery={updateQuery} permit={permit} setPermit={setPermit} sort={sort} setSort={setSort} snapshot={snapshot} facilities={facilities} searchMessage={searchMessage} searching={searching} restoreId={restoreId} onRestored={onRestored} select={select} nearby={nearby} startNearby={startNearby} mapMessage={mapMessage} pointsLoading={pointsLoading} retryPoints={retryPoints} status={status} skipToMap={skipToMap} />}
       </aside>
       <div ref={mapRef} tabIndex={-1} className={`map-panel ${mobileMap ? '' : 'mobile-hidden'}`}>
         {mapMessage && (!nearby.active || (!!snapshot && mapSurface)) && <div className="map-notices"><p className="map-message" role="status">{mapMessage}</p></div>}
@@ -335,7 +352,7 @@ export default function App() {
           <button onClick={() => { mapNearRef.current?.focus(); leaveArea() }}>All Georgia</button>
         </div>}
         <button ref={mapNearRef} className="map-near" onClick={nearby.locating ? nearby.exit : startNearby}><LocateFixed size={17} aria-hidden /> {nearby.locating ? 'Cancel locating' : 'Near me'}</button>
-        <MapImportBoundary key={mapAttempt} onRetry={retryMapImport}><Suspense fallback={<div className="map-failure">Loading map…</div>}><LazyMapView selectedPoint={selectedPoint} statewidePoints={points} fitPoints={fitPoints} ready={!!snapshot} origin={nearby.origin} nearby={nearby.active} selected={selected} onSelect={select} theme={theme} detail={currentDetail?.detail?.facility ?? null} detailError={!!currentDetail?.error} area={!!area} reset={reset} onArea={onArea} cancelKey={`${movementVersion}-${permit}-${mobileMap}-${selected}`} /></Suspense></MapImportBoundary>
+        <MapImportBoundary key={mapAttempt} onRetry={retryMapImport}><Suspense fallback={<div className="map-failure">Loading map…</div>}><LazyMapView filtered={constrained && !area || nearby.active && !area} selectedPoint={selectedPoint} statewidePoints={points} fitPoints={fitPoints} ready={!!snapshot} origin={nearby.origin} nearby={nearby.active} selected={selected} onSelect={select} theme={theme} detail={currentDetail?.detail?.facility ?? null} detailError={!!currentDetail?.error} area={!!area} reset={reset} onArea={onArea} cancelKey={`${movementVersion}-${permit}-${mobileMap}-${selected}-${JSON.stringify(filters)}-${sort}`} /></Suspense></MapImportBoundary>
       </div>
       <div className="mobile-switch" role="group" aria-label="View"><button aria-pressed={!mobileMap} onClick={() => setMobileMap(false)}>List</button><button aria-pressed={mobileMap} onClick={() => setMobileMap(true)}>Map</button></div>
     </main>

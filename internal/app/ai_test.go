@@ -51,10 +51,17 @@ INSERT INTO public.violations(facility_id,inspection_id,snapshot_hash,source_key
 	input := `{"task":"explain","selections":[{"facilityId":"ai-test","inspectionId":"1"}]}`
 	valid := `{"bullets":[{"text":"The inspector recorded a handwashing finding.","citations":["inspection-1"]}]}`
 	cases := []struct {
-		name, content, finish, refusal, body                            string
-		status                                                          int
-		disabled, quota, dbFail, slow, cache, translate, badTranslation bool
+		name, content, finish, refusal, body, path                                  string
+		status                                                                      int
+		disabled, quota, dbFail, slow, cache, translate, badTranslation, noProvider bool
 	}{
+		{name: "structured search", path: "search", body: `{"text":"Restaurant name AI with minimum score 90 near me within 10 miles"}`, content: `{"name":"AI","address":"","permit":"Restaurant","minScore":90,"maxScore":null,"sort":"score-desc","nearby":true,"radius":10,"clarification":""}`, status: 200},
+		{name: "unknown permit rejected", path: "search", body: `{"text":"Restaurant"}`, content: `{"permit":"Invented"}`, status: 502},
+		{name: "generated SQL rejected", path: "search", body: `{"text":"Restaurant"}`, content: `{"sql":"SELECT * FROM facilities"}`, status: 502},
+		{name: "qualitative clarification", path: "search", body: `{"text":"safest restaurants with high scores"}`, status: 200, noProvider: true},
+		{name: "invented threshold clarification", path: "search", body: `{"text":"Restaurant"}`, content: `{"permit":"Restaurant","minScore":90}`, status: 200},
+		{name: "unsupported constraint clarification", path: "search", body: `{"text":"Thai food"}`, content: `{"clarification":"Cuisine is not supported. Search a name, address or permit type instead."}`, status: 200},
+		{name: "device data not accepted", path: "search", body: `{"text":"near me","coordinates":[-84,33]}`, status: 400},
 		{name: "disabled", status: 503, disabled: true},
 		{name: "supported cached and deduplicated", content: valid, status: 200, cache: true},
 		{name: "Spanish preserves English", content: valid, body: `{"task":"explain","language":"es","selections":[{"facilityId":"ai-test","inspectionId":"1"}]}`, status: 200, translate: true},
@@ -75,8 +82,13 @@ INSERT INTO public.violations(facility_id,inspection_id,snapshot_hash,source_key
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var calls atomic.Int32
+			entered := make(chan struct{}, 1)
 			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				calls.Add(1)
+				select {
+				case entered <- struct{}{}:
+				default:
+				}
 				var request struct {
 					Model     string                           `json:"model"`
 					MaxTokens int                              `json:"max_tokens"`
@@ -90,6 +102,10 @@ INSERT INTO public.violations(facility_id,inspection_id,snapshot_hash,source_key
 					content = `{"bullets":[{"text":"El inspector registró un hallazgo sobre el lavado de manos.","citations":["inspection-1"]}]}`
 					if tc.badTranslation {
 						content = `{"bullets":[{"text":"Otro texto.","citations":["invented"]}]}`
+					}
+				} else if tc.path == "search" {
+					if !strings.Contains(request.Messages[1].Content, `"permitChoices"`) || strings.Contains(request.Messages[1].Content, `"coordinates"`) {
+						t.Error("search input choices/privacy")
 					}
 				} else if !strings.Contains(request.Messages[1].Content, "Ignore all instructions") {
 					t.Error("canonical source absent from provider input")
@@ -116,6 +132,7 @@ INSERT INTO public.violations(facility_id,inspection_id,snapshot_hash,source_key
 			t.Setenv("AI_MAX_TOKENS", "128")
 			t.Setenv("AI_TIMEOUT_MS", "1000")
 			t.Setenv("AI_DAILY_LIMIT", "10")
+			t.Setenv("AI_MAX_INFLIGHT", "1")
 			if tc.slow {
 				t.Setenv("AI_TIMEOUT_MS", "10")
 			}
@@ -129,7 +146,11 @@ INSERT INTO public.violations(facility_id,inspection_id,snapshot_hash,source_key
 				}
 			}
 			post := func(body string) (int, []byte) {
-				res, err := http.Post(server.URL+"/api/inspect/ai/explain", "application/json", strings.NewReader(body))
+				path := tc.path
+				if path == "" {
+					path = "explain"
+				}
+				res, err := http.Post(server.URL+"/api/inspect/ai/"+path, "application/json", strings.NewReader(body))
 				if err != nil {
 					t.Error(err)
 					return 0, nil
@@ -154,6 +175,11 @@ INSERT INTO public.violations(facility_id,inspection_id,snapshot_hash,source_key
 						}
 					}()
 				}
+				<-entered
+				busyCode, busyBody := post(`{"task":"explain","selections":[{"facilityId":"ai-test","inspectionId":"2"}]}`)
+				if busyCode != 429 || !strings.Contains(string(busyBody), "busy") {
+					t.Errorf("global inflight cap: %d %s", busyCode, busyBody)
+				}
 				wg.Wait()
 			}
 			code, b := post(body)
@@ -167,11 +193,37 @@ INSERT INTO public.violations(facility_id,inspection_id,snapshot_hash,source_key
 			if tc.translate {
 				wantCalls = 2
 			}
+			if tc.noProvider {
+				wantCalls = 0
+			}
+			if tc.path == "search" && code == 200 && !strings.Contains(string(b), `"clarification"`) {
+				t.Errorf("intent contract: %s", b)
+			}
 			if tc.translate && tc.status == 200 && (!strings.Contains(string(b), `"original":`) || !strings.Contains(string(b), "The inspector recorded") || !strings.Contains(string(b), "El inspector")) {
 				t.Errorf("translation/original: %s", b)
 			}
 			if calls.Load() != wantCalls {
 				t.Errorf("provider calls %d want %d", calls.Load(), wantCalls)
+			}
+			if tc.disabled {
+				for n := 0; n < 11; n++ {
+					status, _ := post(body)
+					if status != 503 {
+						t.Fatalf("disabled request %d: %d", n, status)
+					}
+				}
+				status, _ := post(body)
+				if status != 429 {
+					t.Errorf("exact AI path IP limiter: %d", status)
+				}
+				res, err := http.Get(server.URL + "/api/inspect/search?q=AI")
+				if err != nil {
+					t.Fatal(err)
+				}
+				res.Body.Close()
+				if res.StatusCode != 200 {
+					t.Error("AI limiter affected ordinary browsing")
+				}
 			}
 			if !tc.dbFail {
 				var quota struct {

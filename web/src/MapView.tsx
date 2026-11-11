@@ -114,7 +114,7 @@ function transformRequest(url: string) {
   }
   return { url }
 }
-export function MapView({ selectedPoint: point, statewidePoints, fitPoints, ready, origin, nearby, selected, onSelect, theme, detail, detailError, area, reset, onArea, cancelKey }: { selectedPoint: Point | undefined; statewidePoints: Point[]; fitPoints: Point[]; ready: boolean; origin: Origin | null; nearby: boolean; selected: string | null; onSelect: (id: string | null) => void; theme: 'light' | 'dark'; detail: Facility | null; detailError: boolean; area: boolean; reset: number; onArea: (area: MapArea) => void; cancelKey: string }) {
+export function MapView({ filtered, selectedPoint: point, statewidePoints, fitPoints, ready, origin, nearby, selected, onSelect, theme, detail, detailError, area, reset, onArea, cancelKey }: { filtered: boolean; selectedPoint: Point | undefined; statewidePoints: Point[]; fitPoints: Point[]; ready: boolean; origin: Origin | null; nearby: boolean; selected: string | null; onSelect: (id: string | null) => void; theme: 'light' | 'dark'; detail: Facility | null; detailError: boolean; area: boolean; reset: number; onArea: (area: MapArea) => void; cancelKey: string }) {
   const data = useMemo<GeoJSON.FeatureCollection<GeoJSON.Point, { id: string }>>(() => ({ type: 'FeatureCollection', features: statewidePoints.map(p => ({ type: 'Feature', geometry: { type: 'Point', coordinates: p.coordinates }, properties: { id: p.id } })) }), [statewidePoints])
   const [failed, setFailed] = useState(false)
   const [loaded, setLoaded] = useState(false)
@@ -128,7 +128,7 @@ export function MapView({ selectedPoint: point, statewidePoints, fitPoints, read
     const timer = window.setTimeout(() => setFailed(true), 15000)
     return () => window.clearTimeout(timer)
   }, [loaded, attempt])
-  return <section ref={mapRegion} className="map-area" aria-label="Facility map" tabIndex={-1}><MapErrorBoundary key={attempt} onRetry={retry}>{failed ? <MapFailure onRetry={retry} /> : <Map bounds={georgiaBounds} fitBoundsOptions={{ padding: 20 }} theme={theme} transformRequest={transformRequest}>
+  return <section ref={mapRegion} className="map-area" aria-label={filtered ? 'Map of shown search results' : 'Facility map'} tabIndex={-1}><MapErrorBoundary key={attempt} onRetry={retry}>{failed ? <MapFailure onRetry={retry} /> : <Map bounds={georgiaBounds} fitBoundsOptions={{ padding: 20 }} theme={theme} transformRequest={transformRequest}>
     <MapLoadMonitor onLoaded={onLoaded} onFailure={onFailure} />
     <AreaMovement onArea={onArea} cancelKey={cancelKey} />
     <FitView selected={selected} nearby={nearby} origin={origin} fitPoints={fitPoints} ready={ready} area={area} reset={reset} />

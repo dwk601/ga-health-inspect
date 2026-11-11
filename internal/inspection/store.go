@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -69,22 +71,25 @@ func generation(ctx context.Context, q interface {
 const facilityFields = `source_id, name, address, phone, permit_type, permit_number, to_char(last_inspection_date, 'YYYY-MM-DD'), last_inspection_score, google_places`
 
 type facility struct {
-	ID                  string   `json:"id"`
-	Name                *string  `json:"name"`
-	Address             *string  `json:"address"`
-	Phone               *string  `json:"phone"`
-	PermitType          *string  `json:"permitType"`
-	PermitNumber        *string  `json:"permitNumber"`
-	LastInspectionDate  *string  `json:"lastInspectionDate"`
-	LastInspectionScore *float64 `json:"lastInspectionScore"`
-	GooglePlaces        *string  `json:"googlePlaces"`
-	PlaceName           *string  `json:"placeName"`
+	ID                  string    `json:"id"`
+	Name                *string   `json:"name"`
+	Address             *string   `json:"address"`
+	Phone               *string   `json:"phone"`
+	PermitType          *string   `json:"permitType"`
+	PermitNumber        *string   `json:"permitNumber"`
+	LastInspectionDate  *string   `json:"lastInspectionDate"`
+	LastInspectionScore *float64  `json:"lastInspectionScore"`
+	GooglePlaces        *string   `json:"googlePlaces"`
+	PlaceName           *string   `json:"placeName"`
+	Coordinates         []float64 `json:"coordinates,omitempty"`
+	DistanceMiles       *float64  `json:"distanceMiles,omitempty"`
 }
 
 func scanFacility(row interface{ Scan(...any) error }) (facility, error) {
 	var f facility
 	err := row.Scan(&f.ID, &f.Name, &f.Address, &f.Phone, &f.PermitType, &f.PermitNumber, &f.LastInspectionDate, &f.LastInspectionScore, &f.GooglePlaces)
 	f.PlaceName = placeName(f.GooglePlaces)
+	f.Coordinates = coordinates(f.GooglePlaces)
 	return f, err
 }
 
@@ -107,7 +112,41 @@ func placeName(raw *string) *string {
 	return &name
 }
 
-func (s *store) search(ctx context.Context, query, permit, sort string) ([]facility, error) {
+type searchFilters struct {
+	Query    string    `json:"q"`
+	Name     string    `json:"name"`
+	Address  string    `json:"address"`
+	Permit   string    `json:"permit"`
+	Sort     string    `json:"sort"`
+	MinScore *float64  `json:"minScore"`
+	MaxScore *float64  `json:"maxScore"`
+	Origin   []float64 `json:"-"`
+	Radius   float64   `json:"radius"`
+}
+
+func miles(a, b []float64) float64 {
+	rad := math.Pi / 180
+	dLat := (b[1] - a[1]) * rad
+	dLon := (b[0] - a[0]) * rad
+	h := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Cos(a[1]*rad)*math.Cos(b[1]*rad)*math.Sin(dLon/2)*math.Sin(dLon/2)
+	return 3958.7613 * 2 * math.Asin(math.Sqrt(math.Min(1, h)))
+}
+
+func normalizedName(query string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			return r
+		}
+		return -1
+	}, strings.ToLower(query))
+}
+
+func literalQuery(query string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
+}
+
+func (s *store) search(ctx context.Context, filters searchFilters) ([]facility, error) {
+	query, permit, sorting := filters.Query, filters.Permit, filters.Sort
 	if s.pool == nil {
 		return nil, errors.New("source unavailable")
 	}
@@ -117,18 +156,22 @@ func (s *store) search(ctx context.Context, query, permit, sort string) ([]facil
 		}
 		return -1
 	}, strings.ToLower(query))
-	query = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
+	query = literalQuery(query)
 	order := ""
-	if sort == "score-asc" {
+	if sorting == "score-asc" {
 		order = "last_inspection_score ASC NULLS LAST, "
-	} else if sort == "score-desc" {
+	} else if sorting == "score-desc" {
 		order = "last_inspection_score DESC NULLS LAST, "
 	}
 	nameNorm := `regexp_replace(lower(coalesce(name,'')), '[^a-z0-9]+', '', 'g')`
 	placeNorm := `regexp_replace(lower(split_part(split_part(coalesce(google_places,''), '/maps/place/', 2), '/', 1)), '(%[0-9a-f]{2}|[^a-z0-9%])+', '', 'g')`
 	// Dropped-pin coordinate labels are not place names (see coordinateName), so they are not searchable.
 	searchPlace := `regexp_replace(` + placeNorm + `, '^[nsew]*[0-9][0-9nsew]*$', '')`
-	rows, err := s.pool.Query(ctx, `SELECT `+facilityFields+` FROM public.facilities WHERE ($1 = '' OR name ILIKE '%' || $1 || '%' ESCAPE E'\\' OR address ILIKE '%' || $1 || '%' ESCAPE E'\\' OR source_id ILIKE '%' || $1 || '%' ESCAPE E'\\' OR ($3 <> '' AND (strpos(`+nameNorm+`, $3) > 0 OR strpos(`+searchPlace+`, $3) > 0))) AND ($2 = '' OR permit_type = $2) ORDER BY `+order+`CASE WHEN $3 = '' THEN 2 WHEN strpos(`+nameNorm+`, $3) = 1 OR strpos(`+searchPlace+`, $3) = 1 THEN 0 WHEN strpos(`+nameNorm+`, $3) > 0 OR strpos(`+searchPlace+`, $3) > 0 THEN 1 ELSE 2 END, name NULLS LAST, source_id LIMIT 100`, query, permit, normalized)
+	limit := " LIMIT 100"
+	if len(filters.Origin) == 2 {
+		limit = ""
+	} // Filter spatial candidates before taking the nearest places.
+	rows, err := s.pool.Query(ctx, `SELECT `+facilityFields+` FROM public.facilities WHERE ($1 = '' OR name ILIKE '%' || $1 || '%' ESCAPE E'\\' OR address ILIKE '%' || $1 || '%' ESCAPE E'\\' OR source_id ILIKE '%' || $1 || '%' ESCAPE E'\\' OR ($3 <> '' AND (strpos(`+nameNorm+`, $3) > 0 OR strpos(`+searchPlace+`, $3) > 0))) AND ($2 = '' OR permit_type = $2) AND ($4='' OR name ILIKE '%' || $4 || '%' ESCAPE E'\\' OR ($8<>'' AND strpos(`+searchPlace+`,$8)>0)) AND ($5='' OR address ILIKE '%' || $5 || '%' ESCAPE E'\\') AND ($6::numeric IS NULL OR last_inspection_score >= $6) AND ($7::numeric IS NULL OR last_inspection_score <= $7) ORDER BY `+order+`CASE WHEN $3 = '' THEN 2 WHEN strpos(`+nameNorm+`, $3) = 1 OR strpos(`+searchPlace+`, $3) = 1 THEN 0 WHEN strpos(`+nameNorm+`, $3) > 0 OR strpos(`+searchPlace+`, $3) > 0 THEN 1 ELSE 2 END, name NULLS LAST, source_id`+limit, query, permit, normalized, literalQuery(filters.Name), literalQuery(filters.Address), filters.MinScore, filters.MaxScore, normalizedName(filters.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +184,50 @@ func (s *store) search(ctx context.Context, query, permit, sort string) ([]facil
 		}
 		result = append(result, f)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(filters.Origin) == 2 {
+		nearby := make([]facility, 0, len(result))
+		for _, f := range result {
+			if len(f.Coordinates) != 2 {
+				continue
+			}
+			distance := miles(filters.Origin, f.Coordinates)
+			if distance > filters.Radius {
+				continue
+			}
+			f.DistanceMiles = &distance
+			nearby = append(nearby, f)
+		}
+		sort.SliceStable(nearby, func(i, j int) bool {
+			a, b := nearby[i], nearby[j]
+			if sorting != "" {
+				x, y := a.LastInspectionScore, b.LastInspectionScore
+				if x == nil && y != nil {
+					return false
+				}
+				if x != nil && y == nil {
+					return true
+				}
+				if x != nil && y != nil && *x != *y {
+					if sorting == "score-asc" {
+						return *x < *y
+					}
+					return *x > *y
+				}
+			}
+			if *a.DistanceMiles != *b.DistanceMiles {
+				return *a.DistanceMiles < *b.DistanceMiles
+			}
+			return a.ID < b.ID
+		})
+		if len(nearby) > 20 {
+			nearby = nearby[:20]
+		}
+		return nearby, nil
+	}
+	return result, nil
 }
 
 func (s *store) lookup(ctx context.Context, ids []string) ([]facility, error) {
