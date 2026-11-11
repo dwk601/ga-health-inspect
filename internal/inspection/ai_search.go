@@ -1,6 +1,7 @@
 package inspection
 
 import (
+	"context"
 	"encoding/json"
 	"math"
 	"regexp"
@@ -52,6 +53,9 @@ func (s *service) aiSearch(e *core.RequestEvent) error {
 	if s.ai.config.base == "" || s.ai.config.model == "" {
 		return aiError(e, 503, "disabled")
 	}
+	ctxBudget, cancelBudget := context.WithTimeout(e.Request.Context(), s.ai.config.timeout)
+	defer cancelBudget()
+	e.Request = e.Request.WithContext(ctxBudget)
 	var input struct {
 		Text string `json:"text"`
 	}

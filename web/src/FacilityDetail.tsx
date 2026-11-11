@@ -5,10 +5,10 @@ import { InspectionExplanation } from './InspectionExplanation'
 import { CommunityPanel } from './CommunityPanel'
 import { formatDate, formatTime } from './format'
 import { facilityTitle, officialName } from './facilityName'
-import type { Detail, Inspection } from './types'
+import type { Detail, Inspection, ComparisonSelection } from './types'
 import type { LocationFix } from './geolocation'
 
-function safeLink(value: string | null) {
+export function safeLink(value: string | null) {
   try {
     const url = new URL(value || '')
     return ['http:', 'https:'].includes(url.protocol) ? url.href : undefined
@@ -75,7 +75,9 @@ export function FacilityDetail({
   detail,
   error,
   load,
+  comparison,
 }: {
+  comparison: ComparisonSelection
   id: string
   mapped?: boolean
   coordinates: [number, number] | null | undefined
@@ -109,7 +111,7 @@ export function FacilityDetail({
       {detail && facility && (
         <>
           <header className="detail-title">
-            <h1 tabIndex={-1} ref={focusHeading}>
+            <h1 id="facility-title" tabIndex={-1} ref={focusHeading}>
               {facilityTitle(facility)}
             </h1>
             {officialName(facility) && <p>Listed as {officialName(facility)}</p>}
@@ -119,6 +121,7 @@ export function FacilityDetail({
                 .join(' · ')}
             </p>
             <Contact facility={facility} />
+            <button type="button" aria-pressed={comparison.ids.includes(id)} disabled={comparison.ids.length >= 3 && !comparison.ids.includes(id)} onClick={() => comparison.toggle(id)}>{comparison.ids.includes(id) ? 'Remove from comparison' : 'Add to comparison'}</button>
             <button className="community-jump" onClick={() => {
               const heading = document.getElementById('community-title')
               heading?.focus({ preventScroll: true })

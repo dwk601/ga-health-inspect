@@ -8,10 +8,12 @@ import { pb, getPoints, getDetail, search, refreshAuth } from './api'
 import { MapFailure } from './MapFailure'
 import { FacilityList } from './FacilityList'
 import { FacilityDetail } from './FacilityDetail'
+import { ComparisonTray, FacilityCompare, useComparison } from './FacilityCompare'
+import { facilityTitle } from './facilityName'
 import { DiscoveryFilters } from './DiscoveryFilters'
 import { AuthPanel } from './AuthPanel'
 import { AccountLink } from './AccountLink'
-import type { Detail, Facility, MapArea, Snapshot, SearchFilters, SearchIntent } from './types'
+import type { Detail, Facility, MapArea, Snapshot, SearchFilters, SearchIntent, ComparisonSelection } from './types'
 
 const createMapView = () => lazy(async () => {
   const { setWorkerUrl } = await import('maplibre-gl')
@@ -24,6 +26,10 @@ class MapImportBoundary extends Component<{ children: ReactNode; onRetry: () => 
   state = { failed: false }
   static getDerivedStateFromError() { return { failed: true } }
   render() { return this.state.failed ? <MapFailure onRetry={this.props.onRetry} /> : this.props.children }
+}
+
+function comparisonFromURL() {
+  return [...new Set((new URLSearchParams(location.search).get('compare') ?? '').split(',').filter(id => id && id.length <= 500 && !id.includes('\u0000')))].slice(0, 3)
 }
 
 function selectedFromURL() {
@@ -128,7 +134,8 @@ function NearbyStatus({ status }: { status: ReturnType<typeof nearbyStatus> }) {
   return <p>{status.text}</p>
 }
 
-function NearbyResults({ nearby, facilities, snapshot, pointsLoading, status, restoreId, onRestored, select, startNearby, leave, retryPoints, focusNear, area }: {
+function NearbyResults({ nearby, facilities, snapshot, pointsLoading, status, restoreId, onRestored, select, startNearby, leave, retryPoints, focusNear, area, comparison }: {
+  comparison: ComparisonSelection
   nearby: Nearby; facilities: Facility[]; snapshot: Snapshot | null; pointsLoading: boolean; status: ReturnType<typeof nearbyStatus>; area: boolean
   restoreId: string | null; onRestored: () => void; select: (id: string) => void; startNearby: () => void; leave: () => void; retryPoints: () => void; focusNear: () => void
 }) {
@@ -140,7 +147,7 @@ function NearbyResults({ nearby, facilities, snapshot, pointsLoading, status, re
     if (nearby.lookupError) return <div className="empty"><button onClick={() => retry(nearby.retry)}>Try again</button></div>
     if (snapshot && !nearby.locating && !nearby.candidates.length) return <div className="empty"><button onClick={leave}>Search all Georgia</button></div>
     if (nearby.facilities.length) return <>
-      <FacilityList facilities={facilities} distances={nearby.origin ? nearby.distances : undefined} restoreId={restoreId} onRestored={onRestored} onSelect={select} />
+      <FacilityList comparison={comparison} facilities={facilities} distances={nearby.origin ? nearby.distances : undefined} restoreId={restoreId} onRestored={onRestored} onSelect={select} />
       {area && (nearby.loadingMore || nearby.areaCount > nearby.candidates.length) && <div className="show-more"><button onClick={nearby.showMore} disabled={nearby.loadingMore}>{nearby.loadingMore ? 'Loading…' : `Show ${Math.min(LIST_LIMIT, nearby.areaCount - nearby.candidates.length)} more`}</button></div>}
     </>
     return null
@@ -152,7 +159,8 @@ function NearbyResults({ nearby, facilities, snapshot, pointsLoading, status, re
   </>
 }
 
-function Directory({ query, setQuery, permit, setPermit, sort, setSort, snapshot, facilities, searchMessage, searching, restoreId, onRestored, select, nearby, startNearby, mapMessage, pointsLoading, retryPoints, status, area, leaveArea, skipToMap, discovery }: {
+function Directory({ query, setQuery, permit, setPermit, sort, setSort, snapshot, facilities, searchMessage, searching, restoreId, onRestored, select, nearby, startNearby, mapMessage, pointsLoading, retryPoints, status, area, leaveArea, skipToMap, discovery, comparison }: {
+  comparison: ComparisonSelection
   discovery: ReactNode
   query: string; setQuery: (value: string) => void; permit: string; setPermit: (value: string) => void; sort: string; setSort: (value: string) => void
   snapshot: Snapshot | null; facilities: Facility[]; searchMessage: string; searching: boolean; restoreId: string | null; onRestored: () => void; select: (id: string) => void
@@ -203,16 +211,19 @@ function Directory({ query, setQuery, permit, setPermit, sort, setSort, snapshot
       <div><label htmlFor="sort">Sort</label><select id="sort" value={sort} onChange={e => setSort(e.target.value)}><option value="">{area ? 'Default' : nearby.active ? 'Nearest' : query.trim() ? 'Best match' : 'Name'}</option><option value="score-desc">Highest score</option><option value="score-asc">Lowest score</option></select></div>
     </div>
     <div className="results-heading"><span role={local ? undefined : 'status'}>{area ? 'Places in this map area' : nearby.active ? 'Nearby places' : searchMessage ? 'Search unavailable' : resultSummary(facilities.length, searching, sort)}</span></div>
-    {hasList && (local || facilities.length > 0) && <button className="skip-link" onClick={skipToMap}>Skip to map</button>}
+    {hasList && (local || facilities.length > 0) && <button className="skip-link" onClick={skipToMap}>{comparison.ids.length >= 2 ? 'Skip to comparison' : 'Skip to map'}</button>}
     {area && sort && <p className="directory-notice">Score sorting reorders the shown places only.</p>}
     {(nearby.active || area) && snapshot && mapMessage && <p className="directory-notice">{mapMessage}</p>}
-    {nearby.active || area ? <NearbyResults area={area} nearby={nearby} facilities={displayed} snapshot={snapshot} pointsLoading={pointsLoading} status={status} restoreId={restoreId} onRestored={onRestored} select={select} startNearby={startNearby} leave={leave} retryPoints={retryPoints} focusNear={focusNear} /> : searchMessage ? <p className="empty" role="alert">{searchMessage}</p> : searching && !facilities.length ? null : <FacilityList facilities={facilities} restoreId={restoreId} onRestored={onRestored} onSelect={select} />}
+    {nearby.active || area ? <NearbyResults comparison={comparison} area={area} nearby={nearby} facilities={displayed} snapshot={snapshot} pointsLoading={pointsLoading} status={status} restoreId={restoreId} onRestored={onRestored} select={select} startNearby={startNearby} leave={leave} retryPoints={retryPoints} focusNear={focusNear} /> : searchMessage ? <p className="empty" role="alert">{searchMessage}</p> : searching && !facilities.length ? null : <FacilityList comparison={comparison} facilities={facilities} restoreId={restoreId} onRestored={onRestored} onSelect={select} />}
   </>
 }
 
 export default function App() {
   const [path, setPath] = useState(location.pathname)
   const [selected, setSelected] = useState<string | null>(selectedFromURL)
+  const [compareIDs, setCompareIDs] = useState<string[]>(comparisonFromURL)
+  const comparisonData = useComparison(compareIDs)
+  const comparing = compareIDs.length >= 2
   const [restoreId, setRestoreId] = useState<string | null>(null)
   const [detailState, setDetailState] = useState<{ id: string; detail: Detail | null; error: string } | null>(null)
   const [detailVersion, setDetailVersion] = useState(0)
@@ -261,7 +272,7 @@ export default function App() {
     url.searchParams.delete('resend')
     history.replaceState(history.state, '', url)
   }, [initialRecovery])
-  const [mobileMap, setMobileMap] = useState(false)
+  const [mobileMap, setMobileMap] = useState(() => comparisonFromURL().length >= 2)
   const [isMobile, setIsMobile] = useState(() => matchMedia('(max-width: 720px)').matches)
   useEffect(() => {
     const media = matchMedia('(max-width: 720px)')
@@ -277,7 +288,7 @@ export default function App() {
   const mapNearRef = useRef<HTMLButtonElement>(null)
   const accountRef = useRef<HTMLButtonElement>(null)
   const retryMapImport = () => { mapRef.current?.focus(); setLazyMapView(createMapView()); setMapAttempt(n => n + 1) }
-  const skipToMap = () => { if (isMobile) flushSync(() => setMobileMap(true)); mapNearRef.current?.focus() }
+  const skipToMap = () => { if (isMobile) flushSync(() => setMobileMap(true)); if (comparing) document.getElementById('comparison-title')?.focus(); else mapNearRef.current?.focus() }
   const closeAuth = () => { setAuth(false); requestAnimationFrame(() => accountRef.current?.focus()) }
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     const stored = localStorage.getItem('theme')
@@ -302,6 +313,9 @@ export default function App() {
     const handler = () => {
       if (nearby.locating) nearby.exit()
       setPath(location.pathname)
+      const compared = comparisonFromURL()
+      setCompareIDs(compared)
+      setMobileMap(compared.length >= 2)
       const next = selectedFromURL()
       if (!next && selected) setRestoreId(selected)
       else if (next) setRestoreId(null)
@@ -315,11 +329,28 @@ export default function App() {
   function select(id: string | null) {
     if (nearby.locating) nearby.exit()
     setRestoreId(id ? null : selected)
-    history.pushState(null, '', id ? `/facilities/${encodeURIComponent(id)}` : '/')
+    const url = new URL(location.href)
+    url.pathname = id ? `/facilities/${encodeURIComponent(id)}` : '/'
+    history.pushState(null, '', url)
     setPath(location.pathname)
     setSelected(id)
     if (id) setMobileMap(false)
   }
+  function updateComparison(ids: string[]) {
+    const next = [...new Set(ids)].slice(0, 3)
+    const url = new URL(location.href)
+    if (next.length) url.searchParams.set('compare', next.join(',')); else url.searchParams.delete('compare')
+    history.pushState(null, '', url)
+    setCompareIDs(next)
+    if (isMobile) setMobileMap(next.length >= 2)
+    if (next.length < compareIDs.length || isMobile && next.length >= 2) requestAnimationFrame(() => {
+      const target = document.getElementById(next.length >= 2 ? 'comparison-title' : next.length ? 'comparison-selection-title' : selected ? 'facility-title' : 'search')
+      target?.focus()
+    })
+  }
+  const comparison: ComparisonSelection = { ids: compareIDs, toggle: id => updateComparison(compareIDs.includes(id) ? compareIDs.filter(item => item !== id) : [...compareIDs, id]) }
+  const comparisonNames = new Map([...facilities, ...nearby.facilities, ...(currentDetail?.detail ? [currentDetail.detail.facility] : [])].map(f => [f.id, facilityTitle(f)]))
+  function viewComparison() { setMobileMap(true); requestAnimationFrame(() => document.getElementById('comparison-title')?.focus()) }
   function applyIntent(intent: SearchIntent) {
     clearArea(); setQuery(''); setPermit(intent.permit); setSort(intent.sort)
     setFilters({ name: intent.name, address: intent.address, minScore: intent.minScore == null ? '' : String(intent.minScore), maxScore: intent.maxScore == null ? '' : String(intent.maxScore), radius: String(intent.radius || 25) })
@@ -340,10 +371,12 @@ export default function App() {
     {auth && <AuthPanel initialRecovery={initialRecovery} onClose={closeAuth} onSignedIn={closeAuth} />}
     <main className="workspace">
       <aside className={`sidebar ${mobileMap ? 'mobile-hidden' : ''}`}>
-        {selected ? <FacilityDetail key={selected} id={selected} mapped={snapshot ? !!selectedPoint : undefined} coordinates={snapshot ? selectedPoint?.coordinates ?? null : undefined} origin={nearby.origin} retryMap={!snapshot && !pointsLoading ? retryPoints : null} nearby={nearby.active} onClose={() => select(null)} user={user} detail={currentDetail?.detail ?? null} error={currentDetail?.error ?? ''} load={loadDetail} onSignIn={() => setAuth(true)} /> :
-          <Directory discovery={<><DiscoveryFilters filters={filters} onFilters={next => { clearArea(); setFilters(next) }} onIntent={applyIntent} nearby={nearby.active} cancelKey={JSON.stringify([query, permit, sort, filters, selected, nearby.active, nearby.origin?.sequence])} />{constrained && !area && <p className="muted">The map shows mapped places from these results; unmapped matches stay in the list.</p>}</>} area={!!area} leaveArea={leaveArea} query={query} setQuery={updateQuery} permit={permit} setPermit={setPermit} sort={sort} setSort={setSort} snapshot={snapshot} facilities={facilities} searchMessage={searchMessage} searching={searching} restoreId={restoreId} onRestored={onRestored} select={select} nearby={nearby} startNearby={startNearby} mapMessage={mapMessage} pointsLoading={pointsLoading} retryPoints={retryPoints} status={status} skipToMap={skipToMap} />}
+        <ComparisonTray ids={compareIDs} items={comparisonData.items} names={comparisonNames} onRemove={id => updateComparison(compareIDs.filter(item => item !== id))} onClear={() => updateComparison([])} onView={viewComparison} />
+        {selected ? <FacilityDetail comparison={comparison} key={selected} id={selected} mapped={snapshot ? !!selectedPoint : undefined} coordinates={snapshot ? selectedPoint?.coordinates ?? null : undefined} origin={nearby.origin} retryMap={!snapshot && !pointsLoading ? retryPoints : null} nearby={nearby.active} onClose={() => select(null)} user={user} detail={currentDetail?.detail ?? null} error={currentDetail?.error ?? ''} load={loadDetail} onSignIn={() => setAuth(true)} /> :
+          <Directory comparison={comparison} discovery={<><DiscoveryFilters filters={filters} onFilters={next => { clearArea(); setFilters(next) }} onIntent={applyIntent} nearby={nearby.active} cancelKey={JSON.stringify([query, permit, sort, filters, selected, nearby.active, nearby.origin?.sequence])} />{constrained && !area && <p className="muted">The map shows mapped places from these results; unmapped matches stay in the list.</p>}</>} area={!!area} leaveArea={leaveArea} query={query} setQuery={updateQuery} permit={permit} setPermit={setPermit} sort={sort} setSort={setSort} snapshot={snapshot} facilities={facilities} searchMessage={searchMessage} searching={searching} restoreId={restoreId} onRestored={onRestored} select={select} nearby={nearby} startNearby={startNearby} mapMessage={mapMessage} pointsLoading={pointsLoading} retryPoints={retryPoints} status={status} skipToMap={skipToMap} />}
       </aside>
       <div ref={mapRef} tabIndex={-1} className={`map-panel ${mobileMap ? '' : 'mobile-hidden'}`}>
+        {comparing ? <FacilityCompare onClear={() => updateComparison([])} items={comparisonData.items} retry={comparisonData.retry} onRemove={id => updateComparison(compareIDs.filter(item => item !== id))} /> : <>
         {mapMessage && (!nearby.active || (!!snapshot && mapSurface)) && <div className="map-notices"><p className="map-message" role="status">{mapMessage}</p></div>}
         {showMapStatus && <div className="map-message nearby-map-status">
           <NearbyStatus status={status} />
@@ -353,8 +386,9 @@ export default function App() {
         </div>}
         <button ref={mapNearRef} className="map-near" onClick={nearby.locating ? nearby.exit : startNearby}><LocateFixed size={17} aria-hidden /> {nearby.locating ? 'Cancel locating' : 'Near me'}</button>
         <MapImportBoundary key={mapAttempt} onRetry={retryMapImport}><Suspense fallback={<div className="map-failure">Loading map…</div>}><LazyMapView filtered={constrained && !area || nearby.active && !area} selectedPoint={selectedPoint} statewidePoints={points} fitPoints={fitPoints} ready={!!snapshot} origin={nearby.origin} nearby={nearby.active} selected={selected} onSelect={select} theme={theme} detail={currentDetail?.detail?.facility ?? null} detailError={!!currentDetail?.error} area={!!area} reset={reset} onArea={onArea} cancelKey={`${movementVersion}-${permit}-${mobileMap}-${selected}-${JSON.stringify(filters)}-${sort}`} /></Suspense></MapImportBoundary>
+        </>}
       </div>
-      <div className="mobile-switch" role="group" aria-label="View"><button aria-pressed={!mobileMap} onClick={() => setMobileMap(false)}>List</button><button aria-pressed={mobileMap} onClick={() => setMobileMap(true)}>Map</button></div>
+      <div className="mobile-switch" role="group" aria-label="View"><button aria-pressed={!mobileMap} onClick={() => setMobileMap(false)}>List</button><button aria-pressed={mobileMap} onClick={() => setMobileMap(true)}>{comparing ? 'Compare' : 'Map'}</button></div>
     </main>
   </>
 }

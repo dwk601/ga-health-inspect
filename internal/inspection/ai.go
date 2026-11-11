@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -91,13 +93,23 @@ func decodeStrict(data []byte, target any) error {
 	return nil
 }
 func readAI(e *core.RequestEvent, target any) bool {
+	mediaType, _, err := mime.ParseMediaType(e.Request.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
+		return false
+	}
+	if origin := e.Request.Header.Get("Origin"); origin != "" {
+		parsed, err := url.Parse(origin)
+		if err != nil || parsed.Host != e.Request.Host {
+			return false
+		}
+	}
 	body, err := io.ReadAll(io.LimitReader(e.Request.Body, 4097))
 	return err == nil && len(body) <= 4096 && decodeStrict(body, target) == nil
 }
 
 // Canonical records only: the browser can select IDs, never submit evidence or URLs.
 func (s *service) explanationEvidence(ctx context.Context, input aiInput) ([]byte, []aiSource, error) {
-	if input.Task != "explain" || len(input.Selections) != 1 {
+	if !validAISelections(input) {
 		return nil, nil, errProvider
 	}
 	records := []any{}
@@ -191,18 +203,38 @@ func validateAnswer(body []byte, sources []aiSource) ([]byte, error) {
 	return json.Marshal(aiAnswer{Bullets: result.Bullets, Sources: sources})
 }
 
+func validAISelections(input aiInput) bool {
+	if input.Task == "explain" && len(input.Selections) != 1 || input.Task == "compare" && (len(input.Selections) < 2 || len(input.Selections) > 3) || input.Task != "explain" && input.Task != "compare" {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, selection := range input.Selections {
+		if selection.FacilityID == "" || len(selection.FacilityID) > 500 || !validText(selection.FacilityID) || selection.InspectionID == "" || len(selection.InspectionID) > 500 || !validText(selection.InspectionID) || len(selection.ContentHash) != 64 || seen[selection.FacilityID] {
+			return false
+		}
+		seen[selection.FacilityID] = true
+	}
+	return true
+}
+
 func (s *service) explain(e *core.RequestEvent) error {
 	e.Response.Header().Set("Cache-Control", "no-store")
 	if s.ai.config.base == "" || s.ai.config.model == "" {
 		return aiError(e, 503, "disabled")
 	}
+	ctxBudget, cancelBudget := context.WithTimeout(e.Request.Context(), s.ai.config.timeout)
+	defer cancelBudget()
+	e.Request = e.Request.WithContext(ctxBudget)
 	var input aiInput
-	if !readAI(e, &input) || input.Task != "explain" || len(input.Selections) != 1 || input.Language != "" && input.Language != "en" && input.Language != "es" {
+	if !readAI(e, &input) || !validAISelections(input) || input.Language != "" && input.Language != "en" && input.Language != "es" {
 		return aiError(e, 400, "invalid_request")
 	}
 	ctx, cancel := requestContext(e)
 	defer cancel()
 	evidence, sources, err := s.explanationEvidence(ctx, input)
+	if errors.Is(e.Request.Context().Err(), context.DeadlineExceeded) {
+		return aiError(e, 504, "timeout")
+	}
 	if errors.Is(err, errSourceChanged) {
 		return aiError(e, 409, "source_changed")
 	}
@@ -212,7 +244,32 @@ func (s *service) explain(e *core.RequestEvent) error {
 	if len(evidence) > s.ai.config.inputBytes {
 		return aiError(e, 422, "source_too_large")
 	}
-	english, status, code := s.aiResult(e, input.Task+":en", explanationPrompt, evidence, func(body []byte) ([]byte, error) { return validateAnswer(body, sources) })
+	prompt := explanationPrompt
+	if input.Task == "compare" {
+		prompt += " Describe only differences in the supplied findings, covering EVERY facility with its own citations. No winner, ranking, combined trust score or comparisons across permit scales. Do not compare scores, grades or visitor ratings."
+	}
+	english, status, code := s.aiResult(e, input.Task+":en", prompt, evidence, func(body []byte) ([]byte, error) {
+		validated, err := validateAnswer(body, sources)
+		if err != nil || input.Task != "compare" {
+			return validated, err
+		}
+		var answer aiAnswer
+		if json.Unmarshal(validated, &answer) != nil {
+			return nil, errProvider
+		}
+		cited := map[string]bool{}
+		for _, b := range answer.Bullets {
+			for _, id := range b.Citations {
+				cited[id] = true
+			}
+		}
+		for _, source := range sources {
+			if !cited[source.ID] {
+				return nil, errProvider
+			}
+		}
+		return validated, nil
+	})
 	if status != 200 {
 		return aiError(e, status, code)
 	}
@@ -276,7 +333,11 @@ func (s *service) aiResult(e *core.RequestEvent, task, prompt string, input []by
 		a.pending[key] = pending
 		a.running++
 		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), a.config.timeout)
+			timeout := a.config.timeout
+			if deadline, ok := e.Request.Context().Deadline(); ok {
+				timeout = time.Until(deadline)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
 			pending.status, pending.code = 503, "quota_unavailable"
 			result, err := e.App.DB().NewQuery(`INSERT INTO ai_daily_quota(day,requests) SELECT {:day},1 WHERE {:limit}>0 ON CONFLICT(day) DO UPDATE SET requests=requests+1 WHERE requests < {:limit}`).Bind(dbx.Params{"day": time.Now().UTC().Format("2006-01-02"), "limit": a.config.daily}).WithContext(ctx).Execute()
@@ -321,6 +382,9 @@ func (s *service) aiResult(e *core.RequestEvent, task, prompt string, input []by
 	a.mu.Unlock()
 	select {
 	case <-e.Request.Context().Done():
+		if errors.Is(e.Request.Context().Err(), context.DeadlineExceeded) {
+			return nil, 504, "timeout"
+		}
 		return nil, 499, "canceled"
 	case <-pending.done:
 		return pending.answer, pending.status, pending.code

@@ -91,7 +91,7 @@ export async function requestAI<T>(task: 'explain' | 'search', input: unknown, s
   }
   return response.json() as Promise<T>
 }
-export function getDetail(id: string) { return get<Detail>(`/api/inspect/facilities/${encodeURIComponent(id)}`) }
+export function getDetail(id: string, signal?: AbortSignal) { return get<Detail>(`/api/inspect/facilities/${encodeURIComponent(id)}`, signal) }
 export function errorMessage(error: unknown, action: string, restrictedRecord = false, contributionWrite = false): string {
   if (typeof error === 'object' && error && 'status' in error) {
     const status = error.status

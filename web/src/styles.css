@@ -120,7 +120,7 @@ summary {
   white-space: nowrap;
 }
 @layer base {
-  :where(.topbar, .sidebar, .mobile-switch, .auth-panel, .map-failure) button {
+  :where(.topbar, .sidebar, .mobile-switch, .auth-panel, .map-failure, .comparison) button {
     min-height: 44px;
     border: 1px solid var(--control-border);
     border-radius: 7px;
@@ -131,11 +131,11 @@ summary {
     font-weight: 600;
     transition: background-color 150ms ease-out, border-color 150ms ease-out;
   }
-  :where(.topbar, .sidebar, .mobile-switch, .auth-panel, .map-failure) button:hover {
+  :where(.topbar, .sidebar, .mobile-switch, .auth-panel, .map-failure, .comparison) button:hover {
     background: var(--muted);
     border-color: var(--muted-foreground);
   }
-  :where(.topbar, .sidebar, .auth-panel) button:is([aria-disabled="true"], :disabled) {
+  :where(.topbar, .sidebar, .auth-panel, .comparison) button:is([aria-disabled="true"], :disabled) {
     opacity: 0.7;
     cursor: progress;
   }
@@ -171,6 +171,32 @@ h3 {
 .discovery-filters .muted { margin-block: 0; }
 .score-filters { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 .score-filters label { display: block; margin-bottom: 0.6rem; }
+.comparison-tray { padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); }
+.comparison-tray h2 { font-size: 1rem; margin: 0 0 0.5rem; }
+.comparison-tray ul { list-style: none; padding: 0; margin: 0; }
+.comparison-tray li { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin-block: 0.5rem; font-size: 0.875rem; }
+.comparison-tray li span { min-width: 0; overflow-wrap: anywhere; }
+.comparison-tray .ai-actions { align-items: center; }
+.comparison-tray a { font-size: 0.875rem; padding-block: 0.5rem; }
+.comparison { height: 100%; overflow: auto; padding: 1.25rem; background: var(--background); overflow-wrap: anywhere; }
+.comparison header > p { max-width: 72ch; color: var(--muted-foreground); }
+.comparison h2 { font-size: 1.4rem; }
+.comparison h3 { font-size: 1.125rem; }
+.comparison h4 { font-size: 1rem; margin-block: 1.5rem 0.5rem; }
+.comparison-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 1.5rem; }
+.comparison-grid article { min-width: 0; border-top: 1px solid var(--border); }
+.comparison dl { margin-block: 1rem; }
+.comparison dl > div { padding-block: 0.75rem; border-bottom: 1px solid var(--border); }
+.comparison dt { font-size: 0.875rem; color: var(--muted-foreground); }
+.comparison dd { margin: 0.3rem 0 0; }
+.comparison-score { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.comparison-visitors { margin-block: 1.5rem; border-top: 1px solid var(--border); }
+.comparison .ai-explanation { max-width: 72ch; border-top: 1px solid var(--border); padding-block-start: 1rem; }
+.facility-list-entry { border-bottom: 1px solid var(--border); }
+.sidebar .facility-list-entry .facility-row { border-bottom: 0; }
+.compare-choice { display: flex; align-items: center; gap: 0.5rem; min-height: 44px; margin: 0; padding: 0 1.25rem 0.5rem; cursor: pointer; }
+.compare-choice input { width: 1.1rem; height: 1.1rem; margin: 0; flex: none; }
+.compare-choice:has(:disabled) { color: var(--muted-foreground); cursor: default; }
 .topbar {
   min-height: 64px;
   padding: 0.6rem 1.25rem;
