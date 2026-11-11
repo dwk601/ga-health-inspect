@@ -66,7 +66,7 @@ func requestContext(e *core.RequestEvent) (context.Context, context.CancelFunc) 
 func (s *service) search(e *core.RequestEvent) error {
 	e.Response.Header().Set("Cache-Control", "no-store")
 	q := e.Request.URL.Query()
-	filters := searchFilters{Query: strings.TrimSpace(q.Get("q")), Name: strings.TrimSpace(q.Get("name")), Address: strings.TrimSpace(q.Get("address")), Permit: strings.TrimSpace(q.Get("permit")), Sort: q.Get("sort")}
+	filters := searchFilters{Query: q.Get("q"), Name: q.Get("name"), Address: q.Get("address"), Permit: q.Get("permit"), Sort: q.Get("sort")}
 	for key, target := range map[string]**float64{"minScore": &filters.MinScore, "maxScore": &filters.MaxScore} {
 		if q.Has(key) && q.Get(key) != "" {
 			value, err := strconv.ParseFloat(q.Get(key), 64)
@@ -97,6 +97,10 @@ func (s *service) nearbySearch(e *core.RequestEvent) error {
 }
 
 func (s *service) executeSearch(e *core.RequestEvent, filters searchFilters) error {
+	filters.Query = strings.TrimSpace(filters.Query)
+	filters.Name = strings.TrimSpace(filters.Name)
+	filters.Address = strings.TrimSpace(filters.Address)
+	filters.Permit = strings.TrimSpace(filters.Permit)
 	if !validFilters(filters) {
 		return aiError(e, 400, "invalid_filters")
 	}

@@ -505,7 +505,8 @@ INSERT INTO public.facilities(source_id,name,address,permit_type,last_inspection
 			payload string
 		}{
 			{"address=Filter+Lane&permit=Restaurant&minScore=90&maxScore=100", 2, "filter-test-125", 200, ""},
-			{"", 1, "filter-test-125", 200, `{"filters":{"address":"Filter Lane","permit":"Restaurant","minScore":90,"maxScore":100,"radius":25},"coordinates":[-84.388,33.749]}`},
+			{"", 1, "filter-test-125", 200, `{"filters":{"q":"Filter Lane","name":"qualifying","address":"Filter Lane","permit":"Restaurant","minScore":90,"maxScore":100,"radius":25},"coordinates":[-84.388,33.749]}`},
+			{"", 1, "filter-test-125", 200, `{"filters":{"q":" Filter Lane ","name":" qualifying ","address":" Filter Lane ","permit":" Restaurant ","minScore":90,"maxScore":100,"radius":25},"coordinates":[-84.388,33.749]}`},
 			{"", 20, "filter-test-125", 200, `{"filters":{"address":"Filter Lane","sort":"score-desc","radius":25},"coordinates":[-84.388,33.749]}`},
 			{"", 0, "", 200, `{"filters":{"address":"Filter Lane","minScore":90,"radius":1},"coordinates":[-84.388,33.749]}`},
 			{"address=Filter+Lane&maxScore=10", 100, "", 200, ""},
