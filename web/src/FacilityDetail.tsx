@@ -54,7 +54,7 @@ export function FindingsStatus({ inspection }: { inspection: Inspection }) {
   return <p className="evidence-status">{inspection.evidence.source === 'gnr' ? 'County source. ' : 'State source. '}{copy[status]}</p>
 }
 
-function explainable(inspection: Inspection) {
+export function explainable(inspection: Inspection) {
   return inspection.evidence.findingsStatus === 'available' && inspection.violations.length > 0
 }
 

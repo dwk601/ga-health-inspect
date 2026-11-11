@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { getDetail } from './api'
 import { facilityTitle, facilityLabel } from './facilityName'
 import { formatDate } from './format'
-import { FindingsStatus, safeLink } from './FacilityDetail'
+import { explainable, FindingsStatus, safeLink } from './FacilityDetail'
 import { AIUsageControl } from './AIUsage'
 import { InspectionExplanation } from './InspectionExplanation'
 import type { Detail } from './types'
@@ -50,7 +50,7 @@ export function FacilityCompare({ items, retry, onRemove, onClear }: { items: Co
   })
   const eligible = loaded && selections.length === items.length && items.every(item => {
     const inspection = item.detail?.inspections[0]
-    return inspection?.evidence.findingsStatus === 'available' && inspection.violations.length > 0
+    return !!inspection && explainable(inspection)
   })
   return <section className="comparison" aria-labelledby="comparison-title">
     <header><button type="button" onClick={onClear}>Clear comparison & show map</button><h2 id="comparison-title" tabIndex={-1}>Inspection comparison</h2><p>Latest recorded inspection for each place. Scores may use different permit scales; this is not a ranking or an assessment of current safety.</p></header>
