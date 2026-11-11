@@ -182,13 +182,13 @@ func sourceLabel(facility facility, raw []byte) string {
 
 // Conservative output checks, not semantic entailment or a safety guarantee.
 // Ordinary inspection vocabulary (date marking, food code, food-grade containers,
-// food safety practices, recommended corrective actions) is allowed; other safety,
+// food safety practices, actions the record recommends) is allowed; other safety,
 // ranking and score wording is not.
 // Digits stay banned, which blocks numeric dates, scores and codes in AI text.
-var prohibitedClaim = regexp.MustCompile(`(?i)\b(safe(?:st|r|ty)?|unsafe|risks?|grades?|scores?|winner|best|healthiest|guarantee[sd]?|segur[oa]s?|seguridad|riesgos?|peligros[oa]s?|saludable[s]?|ganador\w*|mejor(?:es)?|garanti\w*|puntuaci[oó]n|calificaci[oó]n)\b`)
+var prohibitedClaim = regexp.MustCompile(`(?i)\b(safe(?:st|r|ty)?|unsafe|risks?|grades?|scores?|winner|best|healthiest|guarantee[sd]?|recommend\w*|segur[oa]s?|seguridad|riesgos?|peligros[oa]s?|saludable[s]?|ganador\w*|mejor(?:es)?|garanti\w*|recomiend\w*|recomend\w*|puntuaci[oó]n|calificaci[oó]n)\b`)
 
 // Standard terms removed before the check; a following sentence like "a good grade" is still caught.
-var inspectionTerms = regexp.MustCompile(`(?i)\bfood[\s\x{2010}\x{2011}-]+grade\s+(containers?|materials?|bags?|buckets?)\b|\bfood[\s\x{2010}\x{2011}-]+safety\s+(practices?|procedures?|training|rules?)\b|\bseguridad\s+alimentaria\b|\bgrado\s+alimenticio\b`)
+var inspectionTerms = regexp.MustCompile(`(?i)\bfood[\s\x{2010}\x{2011}-]+grade\s+(containers?|materials?|bags?|buckets?)\b|\bfood[\s\x{2010}\x{2011}-]+safety\s+(practices?|procedures?|training|rules?)\b|\bseguridad\s+alimentaria\b|\b(?:record|report|inspector|inspection|note)s?\s+(?:also\s+)?recommend(?:s|ed)?\b|\b(?:registro|informe|inspector|inspecci[oó]n|nota)\s+(?:tambi[eé]n\s+)?(?:recomienda|recomend[oó])\b`)
 var comparativeRanking = regexp.MustCompile(`(?i)\b(worse|worst|better|cleaner|cleanest|dirtier|dirtiest|superior|inferior|peor(?:es)?|mejor(?:es)?|m[aá]s\s+(?:limpi[oa]s?|suci[oa]s?|segur[oa]s?))\b`)
 
 var generatedLink = regexp.MustCompile(`(?i)(://|www\.|(?:[a-z0-9-]+\.)+[a-z]{2,}|mailto:|javascript:)`)
