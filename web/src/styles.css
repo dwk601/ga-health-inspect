@@ -195,6 +195,8 @@ h3 {
 .comparison-score { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .comparison-visitors { margin-block: 1.5rem; border-top: 1px solid var(--border); }
 .comparison .ai-explanation { max-width: 72ch; border-top: 1px solid var(--border); padding-block-start: 1rem; }
+/* Side by side, the facility detail already shows AI usage. */
+@media (min-width: 721px) { .workspace:has(.inspection-history .ai-usage) .comparison .ai-usage { display: none; } }
 .facility-list-entry { border-bottom: 1px solid var(--border); }
 .sidebar .facility-list-entry .facility-row { border-bottom: 0; }
 .compare-choice { display: flex; align-items: center; gap: 0.5rem; min-height: 44px; margin: 0; padding: 0 1.25rem 0.5rem; cursor: pointer; }

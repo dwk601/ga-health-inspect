@@ -6,6 +6,7 @@ type AIContext = {
   userId: string; usage: AIUsage | null; allowed: boolean; reason: string; signIn: () => void
   request: <T>(task: 'explain' | 'search', input: unknown, signal: AbortSignal) => Promise<T>
 }
+const USAGE_RETRY_MS = 30000
 const Context = createContext<AIContext | null>(null)
 type UsageState = { userId: string; usage: AIUsage | null; loading: boolean; unavailable: boolean }
 
@@ -55,9 +56,15 @@ export function AIUsageProvider({ userId, onSignIn, children }: { userId: string
     const timer = setTimeout(() => { void refresh() }, Math.max(100, Date.parse(usage.resetsAt) - Date.now() + 100))
     return () => clearTimeout(timer)
   }, [userId, usage?.resetsAt, refresh])
+  const retryUnavailable = state.userId === userId && state.unavailable && !state.loading
+  useEffect(() => {
+    if (!retryUnavailable) return
+    const timer = setTimeout(() => { void refresh() }, USAGE_RETRY_MS)
+    return () => clearTimeout(timer)
+  }, [retryUnavailable, refresh])
   const expired = !!usage && Date.parse(usage.resetsAt) <= Date.now()
   const reason = !usage || expired || state.unavailable
-    ? state.loading ? 'Checking your AI usage…' : 'AI usage is unavailable. Try again later.'
+    ? state.loading ? 'Checking your AI usage…' : 'AI usage is unavailable. Retrying shortly.'
     : !usage.enabled ? 'AI is not enabled. Original records and manual search remain available.'
       : usage.remaining === 0 ? 'You have used your daily AI requests. Your allowance resets at midnight UTC.' : ''
   const allowed = !!userId && !!usage && !expired && !state.unavailable && usage.enabled && usage.remaining > 0
@@ -77,6 +84,6 @@ export function useAI() {
 
 export function AIUsageControl() {
   const ai = useAI()
-  if (!ai.userId) return <button type="button" onClick={ai.signIn}>Sign in to use AI</button>
-  return <p className="muted" role="status">{ai.usage && <>{ai.usage.remaining} of {ai.usage.limit} AI requests remaining. Resets at <time dateTime={ai.usage.resetsAt}>midnight UTC</time>. </>}{ai.reason}</p>
+  if (!ai.userId) return <button type="button" className="ai-usage" onClick={ai.signIn}>Sign in to use AI</button>
+  return <p className="muted ai-usage" role="status">{ai.usage && <>{ai.usage.remaining} of {ai.usage.limit} AI requests remaining. Resets at <time dateTime={ai.usage.resetsAt}>midnight UTC</time>. </>}{ai.reason}</p>
 }
