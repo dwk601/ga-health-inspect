@@ -1,8 +1,15 @@
-export type Facility = { id: string; name: string | null; placeName: string | null; address: string | null; phone: string | null; permitType: string | null; permitNumber: string | null; lastInspectionDate: string | null; lastInspectionScore: number | null; googlePlaces: string | null }
+export type SearchFilters = { name: string; address: string; minScore: string; maxScore: string; radius: string }
+export type SearchIntent = { name: string; address: string; permit: string; minScore: number | null; maxScore: number | null; sort: string; nearby: boolean; radius: number; clarification: string }
+export type Facility = { coordinates?: [number, number]; distanceMiles?: number; id: string; name: string | null; placeName: string | null; address: string | null; phone: string | null; permitType: string | null; permitNumber: string | null; lastInspectionDate: string | null; lastInspectionScore: number | null; googlePlaces: string | null }
 export type MapArea = { bounds: [[number, number], [number, number]]; center: [number, number] }
 export type Point = { id: string; permitType: string | null; coordinates: [number, number] }
 export type Snapshot = { points: Point[]; permitChoices: string[]; generatedAt: string | null }
 export type Violation = { sourceKey: string; codeTitle: string | null; regulation: string | null; points: number | null; corrected: boolean | null; repeat: boolean | null; notes: string | null }
-export type Inspection = { id: string; inspectionDate: string | null; purpose: string | null; score: number | null; grade: string | null; timeIn: string | null; timeOut: string | null; comments: string | null; inspector: string | null; printableUrl: string | null; violations: Violation[] }
+export type Evidence = { source: 'state' | 'gnr'; findingsStatus: 'available' | 'incomplete' | 'unavailable' | 'not_fetched' | 'failed' | 'refresh_failed' | 'pending_refresh'; findingsAttemptedAt: string | null; reportStatus: 'available' | 'refresh_failed' | 'failed' | 'not_fetched' | 'external'; reportAttemptedAt: string | null }
+export type Inspection = { contentHash: string; evidence: Evidence; id: string; inspectionDate: string | null; purpose: string | null; score: number | null; grade: string | null; timeIn: string | null; timeOut: string | null; comments: string | null; inspector: string | null; printableUrl: string | null; violations: Violation[] }
 export type Detail = { facility: Facility; inspections: Inspection[]; community: { ratingAverage: number | null; ratingCount: number } }
+export type ComparisonSelection = { ids: string[]; toggle: (id: string) => void }
+export type AIUsage = { enabled: boolean; limit: number; used: number; remaining: number; resetsAt: string }
+export type AISelection = { facilityId: string; inspectionId: string; contentHash: string }
+export type AIAnswer = { original?: AIAnswer; bullets: { text: string; citations: string[] }[]; sources: { id: string; facilityId: string; inspectionId: string; label: string; url?: string }[] }
 export type Contribution = { id: string; owner: string; facility_id: string; authorName: string; rating?: number; body?: string; created: string }

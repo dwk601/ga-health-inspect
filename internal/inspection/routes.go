@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -16,17 +18,19 @@ import (
 	"ganigeorgiev.com/pocketbase/dbx"
 	"ganigeorgiev.com/pocketbase/pocketbase/apis"
 	"ganigeorgiev.com/pocketbase/pocketbase/core"
+	"ganigeorgiev.com/pocketbase/pocketbase/tools/hook"
 	"github.com/jackc/pgx/v5"
 )
 
 type service struct {
 	store *store
 	cache *pointsCache
+	ai    *aiService
 }
 
 // Register adds read-only inspection routes without requiring either external service at startup.
 func Register(e *core.ServeEvent) {
-	s := &service{store: newStore(e.App.Logger()), cache: newCache(e.App.Logger())}
+	s := &service{store: newStore(e.App.Logger()), cache: newCache(e.App.Logger()), ai: newAI()}
 	community.RegisterFacilityValidation(e.App, s.store.location)
 	e.App.OnTerminate().BindFunc(func(event *core.TerminateEvent) error {
 		if s.store.pool != nil {
@@ -37,8 +41,23 @@ func Register(e *core.ServeEvent) {
 		}
 		return event.Next()
 	})
+	e.Router.POST("/api/inspect/ai/explain", s.explain).Bind(apis.RequireAuth("users"), apis.SkipSuccessActivityLog())
+	e.Router.POST("/api/inspect/ai/search", s.aiSearch).Bind(apis.RequireAuth("users"), apis.SkipSuccessActivityLog())
+	e.Router.GET("/api/inspect/ai/usage", s.aiUsage).Bind(apis.RequireAuth("users"), apis.SkipSuccessActivityLog())
 	e.Router.GET("/api/inspect/points", s.points)
-	e.Router.GET("/api/inspect/search", s.search)
+	e.Router.GET("/api/inspect/search", s.search).Bind(apis.SkipSuccessActivityLog(), &hook.Handler[*core.RequestEvent]{
+		Priority: apis.DefaultActivityLoggerMiddlewarePriority - 1,
+		Func: func(e *core.RequestEvent) error {
+			q := e.Request.URL.Query()
+			if q.Has("lat") || q.Has("lon") || q.Has("radius") {
+				// Reject legacy spatial URLs before request logging or rate-limit errors.
+				e.Request.URL.RawQuery = ""
+				return aiError(e, 400, "spatial_get_not_supported")
+			}
+			return e.Next()
+		},
+	})
+	e.Router.POST("/api/inspect/search/nearby", s.nearbySearch).Bind(apis.SkipSuccessActivityLog())
 	e.Router.GET("/api/inspect/facilities/{id}", s.detail)
 	e.Router.POST("/api/inspect/facilities/lookup", s.lookup).Bind(apis.SkipSuccessActivityLog())
 }
@@ -47,22 +66,56 @@ func requestContext(e *core.RequestEvent) (context.Context, context.CancelFunc) 
 }
 func (s *service) search(e *core.RequestEvent) error {
 	e.Response.Header().Set("Cache-Control", "no-store")
-	query := strings.TrimSpace(e.Request.URL.Query().Get("q"))
-	permit := strings.TrimSpace(e.Request.URL.Query().Get("permit"))
-	sort := e.Request.URL.Query().Get("sort")
-	if sort != "" && sort != "score-desc" && sort != "score-asc" {
-		return e.JSON(http.StatusBadRequest, map[string]string{"error": "invalid sort"})
+	q := e.Request.URL.Query()
+	filters := searchFilters{Query: q.Get("q"), Name: q.Get("name"), Address: q.Get("address"), Permit: q.Get("permit"), Sort: q.Get("sort")}
+	for key, target := range map[string]**float64{"minScore": &filters.MinScore, "maxScore": &filters.MaxScore} {
+		if q.Has(key) && q.Get(key) != "" {
+			value, err := strconv.ParseFloat(q.Get(key), 64)
+			if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
+				return aiError(e, 400, "invalid_filters")
+			}
+			*target = &value
+		}
 	}
-	if len(query) > 200 || len(permit) > 200 || !validText(query) || !validText(permit) {
-		return e.JSON(http.StatusBadRequest, map[string]string{"error": "invalid query"})
+	return s.executeSearch(e, filters)
+}
+
+func (s *service) nearbySearch(e *core.RequestEvent) error {
+	e.Response.Header().Set("Cache-Control", "no-store")
+	var input struct {
+		Filters     searchFilters `json:"filters"`
+		Coordinates []float64     `json:"coordinates"`
+	}
+	if !readBoundedJSON(e, &input) || len(input.Coordinates) != 2 {
+		return aiError(e, 400, "nearby_requires_location")
+	}
+	lon, lat := input.Coordinates[0], input.Coordinates[1]
+	if math.IsNaN(lon) || math.IsNaN(lat) || math.Abs(lon) > 180 || math.Abs(lat) > 90 || input.Filters.Radius < 1 {
+		return aiError(e, 400, "invalid_filters")
+	}
+	input.Filters.Origin = input.Coordinates
+	return s.executeSearch(e, input.Filters)
+}
+
+func (s *service) executeSearch(e *core.RequestEvent, filters searchFilters) error {
+	filters.Query = strings.TrimSpace(filters.Query)
+	filters.Name = strings.TrimSpace(filters.Name)
+	filters.Address = strings.TrimSpace(filters.Address)
+	filters.Permit = strings.TrimSpace(filters.Permit)
+	if !validFilters(filters) {
+		return aiError(e, 400, "invalid_filters")
 	}
 	ctx, cancel := requestContext(e)
 	defer cancel()
-	items, err := s.store.search(ctx, query, permit, sort)
+	items, err := s.store.search(ctx, filters)
 	if err != nil {
 		return unavailable(e, err)
 	}
-	return e.JSON(http.StatusOK, map[string]any{"facilities": items})
+	limit := 100
+	if len(filters.Origin) == 2 {
+		limit = 20
+	}
+	return e.JSON(http.StatusOK, map[string]any{"facilities": items, "limit": limit, "limited": len(items) == limit})
 }
 func (s *service) lookup(e *core.RequestEvent) error {
 	e.Response.Header().Set("Cache-Control", "no-store")

@@ -20,6 +20,7 @@ import (
 	"ganigeorgiev.com/pocketbase/pocketbase"
 	"ganigeorgiev.com/pocketbase/pocketbase/apis"
 	"ganigeorgiev.com/pocketbase/pocketbase/core"
+	"ganigeorgiev.com/pocketbase/pocketbase/tools/logger"
 	"github.com/jackc/pgx/v5"
 	"github.com/redis/go-redis/v9"
 )
@@ -84,7 +85,7 @@ func TestManagedSettingsUpdate(t *testing.T) {
 	for _, method := range []string{http.MethodPatch, http.MethodGet} {
 		var body io.Reader
 		if method == http.MethodPatch {
-			body = strings.NewReader(`{"meta":{"appName":"Updated"}}`)
+			body = strings.NewReader(`{"meta":{"appName":"Updated"},"rateLimits":{"enabled":false,"rules":[]}}`)
 		}
 		req, err := http.NewRequest(method, server.URL+"/api/settings", body)
 		if err != nil {
@@ -106,12 +107,27 @@ func TestManagedSettingsUpdate(t *testing.T) {
 			} `json:"smtp"`
 			RateLimits struct {
 				Enabled bool `json:"enabled"`
+				Rules   []struct {
+					Label       string `json:"label"`
+					MaxRequests int    `json:"maxRequests"`
+				} `json:"rules"`
 			} `json:"rateLimits"`
 		}
 		err = json.NewDecoder(res.Body).Decode(&settings)
 		res.Body.Close()
 		if err != nil || res.StatusCode != http.StatusOK || settings.Meta.AppURL != "https://settings.example.test" || !settings.SMTP.Enabled || settings.SMTP.Host != "smtp.example.test" || !settings.RateLimits.Enabled {
 			t.Fatalf("%s settings: status=%d settings=%+v error=%v", method, res.StatusCode, settings, err)
+		}
+		for _, label := range []string{"POST /api/inspect/ai/explain", "POST /api/inspect/ai/search"} {
+			found := 0
+			for _, rule := range settings.RateLimits.Rules {
+				if rule.Label == label && rule.MaxRequests == 12 {
+					found++
+				}
+			}
+			if found != 1 {
+				t.Fatalf("%s managed AI rule %s: %+v", method, label, settings.RateLimits)
+			}
 		}
 	}
 }
@@ -223,7 +239,7 @@ func TestInspectionAPI(t *testing.T) {
 		}
 		return res.StatusCode, res.Header, body
 	}
-	server, _ := start(database, redisURL)
+	server, inspectionApp := start(database, redisURL)
 	// Hold the source query so a second request can join the first fill before its caller cancels.
 	lock, err := admin.Begin(ctx)
 	if err != nil {
@@ -411,6 +427,139 @@ func TestInspectionAPI(t *testing.T) {
 	if code != 200 || !strings.Contains(string(detail), `"id":"GNR-EXAMPLE"`) || !strings.Contains(string(detail), "Example county observation") || !strings.Contains(string(detail), `"grade":"B"`) {
 		t.Fatalf("county detail %d %s", code, detail)
 	}
+	func() {
+		_, err := admin.Exec(ctx, `INSERT INTO public.facilities(source_id,raw) VALUES ('evidence-test','{}');
+INSERT INTO public.inspections(facility_id,source_id,report_template,raw,violations_hash,report_fetched_at,report_error) VALUES ('evidence-test',1,'test','{"violations":{"a":["Title","Rule"]}}','snap','2025-01-01','private failure');
+INSERT INTO public.violations(facility_id,inspection_id,snapshot_hash,source_key,raw,corrected,repeat) VALUES ('evidence-test',1,'snap','a','["Title","Rule"]',true,true);
+INSERT INTO public.gnr_inspections(source_id,facility_id,inspection_date,observations,raw,detail_fetched_at,detail_error) VALUES
+('unfetched','evidence-test','2025-01-01',NULL,'{}',NULL,NULL),
+('empty','evidence-test','2025-01-01','[]','{}','2025-01-01',NULL),
+('failed','evidence-test','2025-01-01',NULL,'{}','2025-01-01','private failure'),
+('retained','evidence-test','2025-01-01','["Old"]','{}','2025-01-01','private failure'),
+('changed','evidence-test','2025-01-01','["Old"]','{}',NULL,NULL)`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			_, err := admin.Exec(ctx, `DELETE FROM public.violations WHERE facility_id='evidence-test'; DELETE FROM public.inspections WHERE facility_id='evidence-test'; DELETE FROM public.gnr_inspections WHERE facility_id='evidence-test'; DELETE FROM public.facilities WHERE source_id='evidence-test'`)
+			if err != nil {
+				t.Error(err)
+			}
+		}()
+		code, _, body := request(server, "/api/inspect/facilities/evidence-test", nil)
+		var result struct {
+			Inspections []struct {
+				ID       string `json:"id"`
+				Hash     string `json:"contentHash"`
+				Evidence struct {
+					Status  string  `json:"findingsStatus"`
+					Attempt *string `json:"findingsAttemptedAt"`
+					Report  string  `json:"reportStatus"`
+				} `json:"evidence"`
+				Violations []struct {
+					Corrected *bool `json:"corrected"`
+					Repeat    *bool `json:"repeat"`
+				} `json:"violations"`
+			} `json:"inspections"`
+		}
+		if err := json.Unmarshal(body, &result); err != nil || code != 200 || len(result.Inspections) != 6 || bytes.Contains(body, []byte("private failure")) {
+			t.Fatalf("evidence: %d %s", code, body)
+		}
+		want := map[string]string{"1": "available", "unfetched": "not_fetched", "empty": "available", "failed": "failed", "retained": "refresh_failed", "changed": "pending_refresh"}
+		for _, i := range result.Inspections {
+			if i.Evidence.Status != want[i.ID] || len(i.Hash) != 64 {
+				t.Errorf("evidence %s: %+v", i.ID, i)
+			}
+			if i.ID == "changed" && i.Evidence.Attempt != nil {
+				t.Error("invented refresh timestamp")
+			}
+			if i.ID == "1" && (i.Evidence.Report != "failed" || len(i.Violations) != 1 || i.Violations[0].Corrected == nil || !*i.Violations[0].Corrected || i.Violations[0].Repeat == nil || !*i.Violations[0].Repeat) {
+				t.Errorf("state flags/report: %+v", i)
+			}
+		}
+		if _, err := admin.Exec(ctx, `UPDATE public.inspections SET violations_hash='missing' WHERE facility_id='evidence-test'`); err != nil {
+			t.Fatal(err)
+		}
+		_, _, changed := request(server, "/api/inspect/facilities/evidence-test", nil)
+		if bytes.Equal(body, changed) || !bytes.Contains(changed, []byte(`"findingsStatus":"incomplete"`)) {
+			t.Fatalf("snapshot change: %s", changed)
+		}
+	}()
+	func() {
+		_, err := admin.Exec(ctx, `INSERT INTO public.facilities(source_id,name,address,permit_type,last_inspection_score,raw,google_places)
+SELECT 'filter-test-'||n, CASE WHEN n=125 THEN 'Z qualifying' ELSE 'A candidate '||n END, 'Filter Lane', 'Restaurant', CASE WHEN n=125 THEN 99 ELSE 10 END, '{}', 'https://maps.example/!3d'||CASE WHEN n=125 THEN '33.9' ELSE (33.749+n*0.0001)::text END||'!4d-84.388' FROM generate_series(1,125) n;
+INSERT INTO public.facilities(source_id,name,address,permit_type,last_inspection_score,raw) VALUES ('filter-test-unmapped','Z unmapped','Filter Lane','Restaurant',99,'{}')`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if _, err := admin.Exec(ctx, `DELETE FROM public.facilities WHERE source_id LIKE 'filter-test-%'`); err != nil {
+				t.Error(err)
+			}
+		}()
+		for _, tc := range []struct {
+			query   string
+			count   int
+			first   string
+			status  int
+			payload string
+		}{
+			{"address=Filter+Lane&permit=Restaurant&minScore=90&maxScore=100", 2, "filter-test-125", 200, ""},
+			{"", 1, "filter-test-125", 200, `{"filters":{"q":"Filter Lane","name":"qualifying","address":"Filter Lane","permit":"Restaurant","minScore":90,"maxScore":100,"radius":25},"coordinates":[-84.388,33.749]}`},
+			{"", 1, "filter-test-125", 200, `{"filters":{"q":" Filter Lane ","name":" qualifying ","address":" Filter Lane ","permit":" Restaurant ","minScore":90,"maxScore":100,"radius":25},"coordinates":[-84.388,33.749]}`},
+			{"", 20, "filter-test-125", 200, `{"filters":{"address":"Filter Lane","sort":"score-desc","radius":25},"coordinates":[-84.388,33.749]}`},
+			{"", 0, "", 200, `{"filters":{"address":"Filter Lane","minScore":90,"radius":1},"coordinates":[-84.388,33.749]}`},
+			{"address=Filter+Lane&maxScore=10", 100, "", 200, ""},
+			{"name=qualifying&address=Filter+Lane", 1, "filter-test-125", 200, ""},
+			{"name=Filter+Lane", 0, "", 200, ""},
+			{"minScore=100&maxScore=10", 0, "", 400, ""},
+			{"minScore=NaN", 0, "", 400, ""},
+			{"radius=5", 0, "", 400, ""},
+			{"lat=33.749&lon=-84.388&radius=25", 0, "", 400, ""},
+			{"", 0, "", 400, `{"filters":{"radius":25},"coordinates":[]}`},
+			{"", 0, "", 400, `{"filters":{"radius":200},"coordinates":[-84.388,33.749]}`},
+			{"", 0, "", 400, strings.Repeat("x", 4097)},
+		} {
+			path := "/api/inspect/search?" + tc.query
+			payload := []string{}
+			if tc.payload != "" {
+				path = "/api/inspect/search/nearby"
+				payload = append(payload, tc.payload)
+			}
+			code, _, body := request(server, path, map[string]string{"Content-Type": "application/json"}, payload...)
+			var result struct {
+				Facilities []struct {
+					ID string `json:"id"`
+				} `json:"facilities"`
+			}
+			if err := json.Unmarshal(body, &result); err != nil || code != tc.status || len(result.Facilities) != tc.count || tc.first != "" && result.Facilities[0].ID != tc.first {
+				t.Errorf("authoritative filters %s: %d %s", tc.query, code, body)
+			}
+		}
+		request(server, "/api/health?privacy-control", nil)
+		flushCtx := context.WithValue(ctx, logger.BlockKey, true)
+		if err := inspectionApp.Logger().Handler().(*logger.BatchHandler).WriteAll(flushCtx); err != nil {
+			t.Fatal(err)
+		}
+		var logs []struct {
+			Data string `db:"data"`
+		}
+		if err := inspectionApp.AuxDB().NewQuery(`SELECT data FROM _logs`).All(&logs); err != nil {
+			t.Fatal(err)
+		}
+		control := false
+		for _, log := range logs {
+			if strings.Contains(log.Data, "privacy-control") {
+				control = true
+			}
+			if strings.Contains(log.Data, "33.749") || strings.Contains(log.Data, "-84.388") {
+				t.Errorf("device coordinates persisted in request log: %s", log.Data)
+			}
+		}
+		if !control {
+			t.Fatal("request log control missing")
+		}
+	}()
 	if _, err = admin.Exec(ctx, `INSERT INTO public.etl_runs (started,finished,status,options,next_page) VALUES (now(), '2098-01-01', 'failed', '{}', 1)`); err != nil {
 		t.Fatal(err)
 	}

@@ -11,6 +11,16 @@ services:
       APP_URL: ${APP_URL:?APP_URL is required}
       APP_NAME: ${APP_NAME}
       APP_ENV: ${APP_ENV}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_TIMEOUT_MS: ${AI_TIMEOUT_MS:-10000}
+      AI_MAX_TOKENS: ${AI_MAX_TOKENS:-1024}
+      AI_MAX_INPUT_BYTES: ${AI_MAX_INPUT_BYTES:-24000}
+      AI_DAILY_LIMIT: ${AI_DAILY_LIMIT:-100}
+      # Per-account UTC-day requests: integer 0..100000; 0 disables, invalid falls back to 10.
+      AI_USER_DAILY_LIMIT: ${AI_USER_DAILY_LIMIT:-10}
+      AI_MAX_INFLIGHT: ${AI_MAX_INFLIGHT:-4}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT}
       SMTP_USERNAME: ${SMTP_USERNAME}

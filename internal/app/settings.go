@@ -31,14 +31,18 @@ func configureSettings(app core.App) error {
 	s.TrustedProxy.Headers = []string{"X-Forwarded-For"}
 	s.TrustedProxy.UseLeftmostIP = false
 	s.RateLimits.Enabled = true
-	for _, label := range []string{"*:requestVerification", "*:requestPasswordReset"} {
+	for _, label := range []string{"*:requestVerification", "*:requestPasswordReset", "POST /api/inspect/ai/explain", "POST /api/inspect/ai/search"} {
 		rules := s.RateLimits.Rules[:0]
 		for _, rule := range s.RateLimits.Rules {
 			if rule.Label != label {
 				rules = append(rules, rule)
 			}
 		}
-		s.RateLimits.Rules = append(rules, core.RateLimitRule{Label: label, MaxRequests: 2, Duration: 60})
+		maxRequests := 2
+		if label == "POST /api/inspect/ai/explain" || label == "POST /api/inspect/ai/search" {
+			maxRequests = 12
+		}
+		s.RateLimits.Rules = append(rules, core.RateLimitRule{Label: label, MaxRequests: maxRequests, Duration: 60})
 	}
 	if host := os.Getenv("SMTP_HOST"); host != "" {
 		port := 587
@@ -119,7 +123,9 @@ func copyManagedSettings(dst, src *core.Settings) {
 		dst.SMTP = src.SMTP
 	}
 	dst.RateLimits.Enabled = src.RateLimits.Enabled
-	managed := func(label string) bool { return label == "*:requestVerification" || label == "*:requestPasswordReset" }
+	managed := func(label string) bool {
+		return label == "*:requestVerification" || label == "*:requestPasswordReset" || label == "POST /api/inspect/ai/explain" || label == "POST /api/inspect/ai/search"
+	}
 	rules := make([]core.RateLimitRule, 0, len(dst.RateLimits.Rules)+2)
 	for _, rule := range dst.RateLimits.Rules {
 		if !managed(rule.Label) {

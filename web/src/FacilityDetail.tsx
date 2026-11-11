@@ -1,13 +1,14 @@
 import { useCallback } from 'react'
 import type { RecordModel } from 'pocketbase'
 import { ArrowLeft, ExternalLink, MapPin, Phone } from 'lucide-react'
+import { InspectionExplanation } from './InspectionExplanation'
 import { CommunityPanel } from './CommunityPanel'
 import { formatDate, formatTime } from './format'
 import { facilityTitle, officialName } from './facilityName'
-import type { Detail, Inspection } from './types'
+import type { Detail, Inspection, ComparisonSelection } from './types'
 import type { LocationFix } from './geolocation'
 
-function safeLink(value: string | null) {
+export function safeLink(value: string | null) {
   try {
     const url = new URL(value || '')
     return ['http:', 'https:'].includes(url.protocol) ? url.href : undefined
@@ -38,6 +39,20 @@ function Contact({ facility }: { facility: Detail['facility'] }) {
   )
 }
 
+export function FindingsStatus({ inspection }: { inspection: Inspection }) {
+  const status = inspection.evidence.findingsStatus
+  const copy = {
+    available: inspection.violations.length ? 'Findings available for this inspection.' : 'The source records no findings for this inspection.',
+    incomplete: 'Some findings may be missing from this inspection snapshot.',
+    unavailable: 'Findings completeness is unavailable.',
+    not_fetched: 'Findings have not been retrieved.',
+    failed: 'Findings could not be retrieved.',
+    refresh_failed: 'Refresh failed. These are retained findings, not confirmed current to this listing.',
+    pending_refresh: 'The listing changed. Retained findings are awaiting refresh.',
+  }
+  return <p className="evidence-status">{inspection.evidence.source === 'gnr' ? 'County source. ' : 'State source. '}{copy[status]}</p>
+}
+
 function visitDetails(inspection: Inspection) {
   const visit = [formatTime(inspection.timeIn), formatTime(inspection.timeOut)].filter(Boolean).join('–')
   return [
@@ -60,7 +75,9 @@ export function FacilityDetail({
   detail,
   error,
   load,
+  comparison,
 }: {
+  comparison: ComparisonSelection
   id: string
   mapped?: boolean
   coordinates: [number, number] | null | undefined
@@ -94,7 +111,7 @@ export function FacilityDetail({
       {detail && facility && (
         <>
           <header className="detail-title">
-            <h1 tabIndex={-1} ref={focusHeading}>
+            <h1 id="facility-title" tabIndex={-1} ref={focusHeading}>
               {facilityTitle(facility)}
             </h1>
             {officialName(facility) && <p>Listed as {officialName(facility)}</p>}
@@ -104,6 +121,7 @@ export function FacilityDetail({
                 .join(' · ')}
             </p>
             <Contact facility={facility} />
+            <button type="button" aria-pressed={comparison.ids.includes(id)} disabled={comparison.ids.length >= 3 && !comparison.ids.includes(id)} onClick={() => comparison.toggle(id)}>{comparison.ids.includes(id) ? 'Remove from comparison' : 'Add to comparison'}</button>
             <button className="community-jump" onClick={() => {
               const heading = document.getElementById('community-title')
               heading?.focus({ preventScroll: true })
@@ -132,6 +150,7 @@ export function FacilityDetail({
           </dl>
           <section className="inspection-history">
             <h2>Inspection history</h2>
+            <p className="muted">Optional AI explanations send selected public inspection records to the configured AI provider, not your account or device location. AI is offered only for confirmed, non-empty findings.</p>
             {!detail.inspections.length && (
               <p className="muted">No inspections on record.</p>
             )}
@@ -153,12 +172,15 @@ export function FacilityDetail({
                         {i.score ?? '—'}
                       </span>
                     </div>
+                    <FindingsStatus inspection={i} />
+                    {i.evidence.findingsStatus === 'available' && i.violations.length > 0 ? <InspectionExplanation key={i.contentHash} selections={[{ facilityId: id, inspectionId: i.id, contentHash: i.contentHash }]} /> : <p className="evidence-status">AI explanation unavailable: {i.evidence.findingsStatus === 'available' ? 'no findings to explain.' : 'source findings are not confirmed complete.'}</p>}
+                    {i.evidence.reportStatus !== 'available' && i.evidence.reportStatus !== 'external' && <p className="evidence-status">Printable report: {i.evidence.reportStatus === 'not_fetched' ? 'not retrieved' : i.evidence.reportStatus === 'refresh_failed' ? 'refresh failed; retained report fields shown' : 'retrieval failed'}.{i.evidence.reportAttemptedAt && ` Last attempt ${new Date(i.evidence.reportAttemptedAt).toLocaleString()}.`}</p>}
                     {(report || i.violations.length > 0 || i.comments) && (
                       <div className="inspection-extras">
                         {i.violations.length > 0 && (
                           <details>
                             <summary>
-                              Current violations ({i.violations.length})
+                              Findings from this inspection ({i.violations.length})
                             </summary>
                             <ul>
                               {i.violations.map((v) => (
@@ -167,6 +189,8 @@ export function FacilityDetail({
                                     {v.codeTitle || v.regulation || 'Violation'}
                                   </strong>
                                   {v.notes && <p>{v.notes}</p>}
+                                  {v.corrected === true && <p>Corrected during inspection</p>}
+                                  {v.repeat === true && <p>Repeat finding</p>}
                                 </li>
                               ))}
                             </ul>

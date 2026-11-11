@@ -2,12 +2,16 @@ package inspection
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"math"
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -67,22 +71,25 @@ func generation(ctx context.Context, q interface {
 const facilityFields = `source_id, name, address, phone, permit_type, permit_number, to_char(last_inspection_date, 'YYYY-MM-DD'), last_inspection_score, google_places`
 
 type facility struct {
-	ID                  string   `json:"id"`
-	Name                *string  `json:"name"`
-	Address             *string  `json:"address"`
-	Phone               *string  `json:"phone"`
-	PermitType          *string  `json:"permitType"`
-	PermitNumber        *string  `json:"permitNumber"`
-	LastInspectionDate  *string  `json:"lastInspectionDate"`
-	LastInspectionScore *float64 `json:"lastInspectionScore"`
-	GooglePlaces        *string  `json:"googlePlaces"`
-	PlaceName           *string  `json:"placeName"`
+	ID                  string    `json:"id"`
+	Name                *string   `json:"name"`
+	Address             *string   `json:"address"`
+	Phone               *string   `json:"phone"`
+	PermitType          *string   `json:"permitType"`
+	PermitNumber        *string   `json:"permitNumber"`
+	LastInspectionDate  *string   `json:"lastInspectionDate"`
+	LastInspectionScore *float64  `json:"lastInspectionScore"`
+	GooglePlaces        *string   `json:"googlePlaces"`
+	PlaceName           *string   `json:"placeName"`
+	Coordinates         []float64 `json:"coordinates,omitempty"`
+	DistanceMiles       *float64  `json:"distanceMiles,omitempty"`
 }
 
 func scanFacility(row interface{ Scan(...any) error }) (facility, error) {
 	var f facility
 	err := row.Scan(&f.ID, &f.Name, &f.Address, &f.Phone, &f.PermitType, &f.PermitNumber, &f.LastInspectionDate, &f.LastInspectionScore, &f.GooglePlaces)
 	f.PlaceName = placeName(f.GooglePlaces)
+	f.Coordinates = coordinates(f.GooglePlaces)
 	return f, err
 }
 
@@ -105,7 +112,41 @@ func placeName(raw *string) *string {
 	return &name
 }
 
-func (s *store) search(ctx context.Context, query, permit, sort string) ([]facility, error) {
+type searchFilters struct {
+	Query    string    `json:"q"`
+	Name     string    `json:"name"`
+	Address  string    `json:"address"`
+	Permit   string    `json:"permit"`
+	Sort     string    `json:"sort"`
+	MinScore *float64  `json:"minScore"`
+	MaxScore *float64  `json:"maxScore"`
+	Origin   []float64 `json:"-"`
+	Radius   float64   `json:"radius"`
+}
+
+func miles(a, b []float64) float64 {
+	rad := math.Pi / 180
+	dLat := (b[1] - a[1]) * rad
+	dLon := (b[0] - a[0]) * rad
+	h := math.Sin(dLat/2)*math.Sin(dLat/2) + math.Cos(a[1]*rad)*math.Cos(b[1]*rad)*math.Sin(dLon/2)*math.Sin(dLon/2)
+	return 3958.7613 * 2 * math.Asin(math.Sqrt(math.Min(1, h)))
+}
+
+func normalizedName(query string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			return r
+		}
+		return -1
+	}, strings.ToLower(query))
+}
+
+func literalQuery(query string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
+}
+
+func (s *store) search(ctx context.Context, filters searchFilters) ([]facility, error) {
+	query, permit, sorting := filters.Query, filters.Permit, filters.Sort
 	if s.pool == nil {
 		return nil, errors.New("source unavailable")
 	}
@@ -115,18 +156,22 @@ func (s *store) search(ctx context.Context, query, permit, sort string) ([]facil
 		}
 		return -1
 	}, strings.ToLower(query))
-	query = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
+	query = literalQuery(query)
 	order := ""
-	if sort == "score-asc" {
+	if sorting == "score-asc" {
 		order = "last_inspection_score ASC NULLS LAST, "
-	} else if sort == "score-desc" {
+	} else if sorting == "score-desc" {
 		order = "last_inspection_score DESC NULLS LAST, "
 	}
 	nameNorm := `regexp_replace(lower(coalesce(name,'')), '[^a-z0-9]+', '', 'g')`
 	placeNorm := `regexp_replace(lower(split_part(split_part(coalesce(google_places,''), '/maps/place/', 2), '/', 1)), '(%[0-9a-f]{2}|[^a-z0-9%])+', '', 'g')`
 	// Dropped-pin coordinate labels are not place names (see coordinateName), so they are not searchable.
 	searchPlace := `regexp_replace(` + placeNorm + `, '^[nsew]*[0-9][0-9nsew]*$', '')`
-	rows, err := s.pool.Query(ctx, `SELECT `+facilityFields+` FROM public.facilities WHERE ($1 = '' OR name ILIKE '%' || $1 || '%' ESCAPE E'\\' OR address ILIKE '%' || $1 || '%' ESCAPE E'\\' OR source_id ILIKE '%' || $1 || '%' ESCAPE E'\\' OR ($3 <> '' AND (strpos(`+nameNorm+`, $3) > 0 OR strpos(`+searchPlace+`, $3) > 0))) AND ($2 = '' OR permit_type = $2) ORDER BY `+order+`CASE WHEN $3 = '' THEN 2 WHEN strpos(`+nameNorm+`, $3) = 1 OR strpos(`+searchPlace+`, $3) = 1 THEN 0 WHEN strpos(`+nameNorm+`, $3) > 0 OR strpos(`+searchPlace+`, $3) > 0 THEN 1 ELSE 2 END, name NULLS LAST, source_id LIMIT 100`, query, permit, normalized)
+	limit := " LIMIT 100"
+	if len(filters.Origin) == 2 {
+		limit = ""
+	} // Filter spatial candidates before taking the nearest places.
+	rows, err := s.pool.Query(ctx, `SELECT `+facilityFields+` FROM public.facilities WHERE ($1 = '' OR name ILIKE '%' || $1 || '%' ESCAPE E'\\' OR address ILIKE '%' || $1 || '%' ESCAPE E'\\' OR source_id ILIKE '%' || $1 || '%' ESCAPE E'\\' OR ($3 <> '' AND (strpos(`+nameNorm+`, $3) > 0 OR strpos(`+searchPlace+`, $3) > 0))) AND ($2 = '' OR permit_type = $2) AND ($4='' OR name ILIKE '%' || $4 || '%' ESCAPE E'\\' OR ($8<>'' AND strpos(`+searchPlace+`,$8)>0)) AND ($5='' OR address ILIKE '%' || $5 || '%' ESCAPE E'\\') AND ($6::numeric IS NULL OR last_inspection_score >= $6) AND ($7::numeric IS NULL OR last_inspection_score <= $7) ORDER BY `+order+`CASE WHEN $3 = '' THEN 2 WHEN strpos(`+nameNorm+`, $3) = 1 OR strpos(`+searchPlace+`, $3) = 1 THEN 0 WHEN strpos(`+nameNorm+`, $3) > 0 OR strpos(`+searchPlace+`, $3) > 0 THEN 1 ELSE 2 END, name NULLS LAST, source_id`+limit, query, permit, normalized, literalQuery(filters.Name), literalQuery(filters.Address), filters.MinScore, filters.MaxScore, normalizedName(filters.Name))
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +184,50 @@ func (s *store) search(ctx context.Context, query, permit, sort string) ([]facil
 		}
 		result = append(result, f)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(filters.Origin) == 2 {
+		nearby := make([]facility, 0, len(result))
+		for _, f := range result {
+			if len(f.Coordinates) != 2 {
+				continue
+			}
+			distance := miles(filters.Origin, f.Coordinates)
+			if distance > filters.Radius {
+				continue
+			}
+			f.DistanceMiles = &distance
+			nearby = append(nearby, f)
+		}
+		sort.SliceStable(nearby, func(i, j int) bool {
+			a, b := nearby[i], nearby[j]
+			if sorting != "" {
+				x, y := a.LastInspectionScore, b.LastInspectionScore
+				if x == nil && y != nil {
+					return false
+				}
+				if x != nil && y == nil {
+					return true
+				}
+				if x != nil && y != nil && *x != *y {
+					if sorting == "score-asc" {
+						return *x < *y
+					}
+					return *x > *y
+				}
+			}
+			if *a.DistanceMiles != *b.DistanceMiles {
+				return *a.DistanceMiles < *b.DistanceMiles
+			}
+			return a.ID < b.ID
+		})
+		if len(nearby) > 20 {
+			nearby = nearby[:20]
+		}
+		return nearby, nil
+	}
+	return result, nil
 }
 
 func (s *store) lookup(ctx context.Context, ids []string) ([]facility, error) {
@@ -194,13 +282,17 @@ func (s *store) location(ctx context.Context, id string) (bool, []float64, error
 	return err == nil, coordinates(placeURL), err
 }
 
-// State portal and GNR inspections share one history shape; GNR observations become violations.
+// Findings completeness is independent of printable-report enrichment and ETL generation.
 const inspectionsSQL = `SELECT data FROM (
  SELECT i.inspection_date AS day, i.source_id::text AS sort_id, json_build_object('id', i.source_id::text, 'inspectionDate', i.inspection_date, 'purpose', i.purpose, 'score', i.score, 'grade', NULLIF(i.report_fields->>'grade', ''), 'timeIn', NULLIF(i.report_fields->>'time_in', ''), 'timeOut', NULLIF(i.report_fields->>'time_out', ''), 'comments', NULL, 'inspector', i.inspector, 'printableUrl', i.printable_url,
+  'recordFingerprint', md5(to_jsonb(i)::text),
+  'evidence', json_build_object('source', 'state', 'findingsStatus', CASE WHEN jsonb_typeof(i.raw->'violations') = 'object' THEN CASE WHEN NOT EXISTS (SELECT 1 FROM jsonb_each(i.raw->'violations') r WHERE NOT EXISTS (SELECT 1 FROM public.current_violations v WHERE v.facility_id=i.facility_id AND v.inspection_id=i.source_id AND v.source_key=r.key AND v.raw=r.value)) AND (SELECT count(*) FROM public.current_violations v WHERE v.facility_id=i.facility_id AND v.inspection_id=i.source_id) = (SELECT count(*) FROM jsonb_object_keys(i.raw->'violations')) THEN 'available' ELSE 'incomplete' END ELSE 'unavailable' END, 'findingsAttemptedAt', NULL, 'reportStatus', CASE WHEN i.report_error IS NOT NULL THEN CASE WHEN i.report_fields IS NOT NULL THEN 'refresh_failed' ELSE 'failed' END WHEN i.report_fields IS NOT NULL THEN 'available' WHEN i.report_fetched_at IS NOT NULL THEN 'failed' ELSE 'not_fetched' END, 'reportAttemptedAt', i.report_fetched_at),
   'violations', COALESCE((SELECT json_agg(json_build_object('sourceKey',v.source_key,'codeTitle',v.code_title,'regulation',v.regulation,'points',v.points,'corrected',v.corrected,'repeat',v.repeat,'notes',v.notes) ORDER BY v.source_key) FROM public.current_violations v WHERE v.facility_id=i.facility_id AND v.inspection_id=i.source_id), '[]'::json)) AS data
  FROM public.inspections i WHERE i.facility_id=$1
  UNION ALL
  SELECT g.inspection_date, g.source_id, json_build_object('id', g.source_id, 'inspectionDate', g.inspection_date, 'purpose', concat_ws(' · ', g.purpose, g.inspection_type), 'score', g.score, 'grade', g.grade, 'timeIn', g.time_in::text, 'timeOut', NULL, 'comments', NULLIF(btrim(g.comments), ''), 'inspector', NULL, 'printableUrl', 'https://inspections.myhealthdepartment.com/gwinnett-ga/inspection/?inspectionID=' || g.source_id,
+  'recordFingerprint', md5(to_jsonb(g)::text),
+  'evidence', json_build_object('source', 'gnr', 'findingsStatus', CASE WHEN g.detail_fetched_at IS NULL THEN CASE WHEN g.observations IS NOT NULL THEN 'pending_refresh' ELSE 'not_fetched' END WHEN g.detail_error IS NOT NULL THEN CASE WHEN g.observations IS NOT NULL THEN 'refresh_failed' ELSE 'failed' END WHEN jsonb_typeof(g.observations) = 'array' THEN 'available' ELSE 'unavailable' END, 'findingsAttemptedAt', g.detail_fetched_at, 'reportStatus', 'external', 'reportAttemptedAt', NULL),
   'violations', COALESCE((SELECT json_agg(json_build_object('sourceKey',o.n::text,'codeTitle',substring(o.text from '^([0-9A-Za-z-]+):'),'regulation',NULL,'points',NULL,'corrected',NULL,'repeat',NULL,'notes',NULLIF(btrim(regexp_replace(o.text, '^[0-9A-Za-z-]+:', '')), '')) ORDER BY o.n) FROM jsonb_array_elements_text(g.observations) WITH ORDINALITY o(text, n)), '[]'::json))
  FROM public.gnr_inspections g WHERE g.facility_id=$1
 ) history ORDER BY day DESC NULLS LAST, lpad(sort_id, 40, '0') DESC LIMIT 500`
@@ -222,6 +314,17 @@ func (s *store) detail(ctx context.Context, id string) (*detailResult, error) {
 	for rows.Next() {
 		var data []byte
 		if err := rows.Scan(&data); err != nil {
+			return nil, err
+		}
+		var record map[string]json.RawMessage
+		if err := json.Unmarshal(data, &record); err != nil {
+			return nil, err
+		}
+		hash := fmt.Sprintf("%x", sha256.Sum256(data))
+		delete(record, "recordFingerprint")
+		record["contentHash"], _ = json.Marshal(hash)
+		data, err = json.Marshal(record)
+		if err != nil {
 			return nil, err
 		}
 		inspections = append(inspections, data)
