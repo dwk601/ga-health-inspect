@@ -188,7 +188,7 @@ func sourceLabel(facility facility, raw []byte) string {
 var prohibitedClaim = regexp.MustCompile(`(?i)\b(safe(?:st|r|ty)?|unsafe|risks?|grades?|scores?|winner|best|healthiest|guarantee[sd]?|recommend\w*|segur[oa]s?|seguridad|riesgos?|peligros[oa]s?|saludable[s]?|ganador\w*|mejor(?:es)?|garanti\w*|recomiend\w*|recomend\w*|puntuaci[oó]n|calificaci[oó]n)\b`)
 
 // Standard terms removed before the check; a following sentence like "a good grade" is still caught.
-var inspectionTerms = regexp.MustCompile(`(?i)\bfood[\s\x{2010}\x{2011}-]+grade\s+(containers?|materials?|bags?|buckets?)\b|\bfood[\s\x{2010}\x{2011}-]+safety\s+(practices?|procedures?|training|rules?)\b|\bseguridad\s+alimentaria\b|\b(?:record|report|inspector|inspection|note)s?\s+(?:also\s+)?recommend(?:s|ed)?\b|\b(?:registro|informe|inspector|inspecci[oó]n|nota)\s+(?:tambi[eé]n\s+)?(?:recomienda|recomend[oó])\b`)
+var inspectionTerms = regexp.MustCompile(`(?i)\bfood[\s\x{2010}\x{2011}-]+grade\s+(containers?|materials?|bags?|buckets?)\b|\bfood[\s\x{2010}\x{2011}-]+safety\s+(practices?|procedures?|training|rules?)\b|\bseguridad\s+alimentaria\b|\b(?:record|report|inspector|inspection|note)s?\s+(?:also\s+)?recommend(?:s|ed)?\b|\b(?:registro|informe|inspector|inspecci[oó]n|nota)\s+(?:tambi[eé]n\s+)?(?:recomienda\b|recomend(?:o\b|ó))`)
 var comparativeRanking = regexp.MustCompile(`(?i)\b(worse|worst|better|cleaner|cleanest|dirtier|dirtiest|superior|inferior|peor(?:es)?|mejor(?:es)?|m[aá]s\s+(?:limpi[oa]s?|suci[oa]s?|segur[oa]s?))\b`)
 
 var generatedLink = regexp.MustCompile(`(?i)(://|www\.|(?:[a-z0-9-]+\.)+[a-z]{2,}|mailto:|javascript:)`)
