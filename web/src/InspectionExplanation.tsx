@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { AIUsageControl, useAI } from './AIUsage'
+import { useAI } from './AIUsage'
 import { aiUserId } from './api'
 import type { AIAnswer, AISelection } from './types'
 
 export function InspectionExplanation(props: { selections: AISelection[]; task?: 'explain' | 'compare' }) {
   const ai = useAI()
-  return ai.userId ? <ExplanationSession key={ai.userId} {...props} /> : <div className="ai-explanation"><AIUsageControl /></div>
+  return ai.userId ? <ExplanationSession key={ai.userId} {...props} /> : null
 }
 
 function ExplanationSession({ selections, task = 'explain' }: { selections: AISelection[]; task?: 'explain' | 'compare' }) {
@@ -37,7 +37,6 @@ function ExplanationSession({ selections, task = 'explain' }: { selections: AISe
   const displayed = language === 'es' && translation ? translation : answer
   return <div className="ai-explanation">
     {task === 'compare' && <p className="muted">Optional AI help sends these public inspection records to the configured AI provider, not your account or device location.</p>}
-    <AIUsageControl />
     <div className="ai-actions"><button type="button" disabled={busy || !ai.allowed} onClick={() => void explain()}>{busy ? 'Explaining…' : task === 'compare' ? 'Explain differences with AI' : 'Explain findings with AI'}</button>{busy && <button type="button" onClick={() => { controller.current?.abort(); setBusy(false) }}>Cancel</button>}</div>
     <p role="status">{error}</p>
     {answer && <>

@@ -3,6 +3,7 @@ import { getDetail } from './api'
 import { facilityTitle, facilityLabel } from './facilityName'
 import { formatDate } from './format'
 import { FindingsStatus, safeLink } from './FacilityDetail'
+import { AIUsageControl } from './AIUsage'
 import { InspectionExplanation } from './InspectionExplanation'
 import type { Detail } from './types'
 
@@ -72,6 +73,6 @@ export function FacilityCompare({ items, retry, onRemove, onClear }: { items: Co
         <div className="comparison-visitors"><h4>Visitor experience · 1–5</h4><p>{detail.community.ratingAverage == null ? 'No average yet' : `${detail.community.ratingAverage.toFixed(1)} average`} · {detail.community.ratingCount} {detail.community.ratingCount === 1 ? 'rating' : 'ratings'}</p><p className="muted">Visitor ratings are separate from inspection scores.</p></div>
       </article>
     })}</div>
-    {eligible ? <InspectionExplanation key={JSON.stringify(selections)} selections={selections} task="compare" /> : <p className="muted">AI differences are available only when all selected inspections have confirmed, non-empty findings. The records above remain usable without AI.</p>}
+    {eligible ? <><AIUsageControl /><InspectionExplanation key={JSON.stringify(selections)} selections={selections} task="compare" /></> : <p className="muted">AI differences are available only when all selected inspections have confirmed, non-empty findings. The records above remain usable without AI.</p>}
   </section>
 }
