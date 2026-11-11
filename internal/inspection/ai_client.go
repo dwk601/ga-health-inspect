@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -45,12 +46,16 @@ func loadAIConfig() aiConfig {
 
 var carrierGradeNAT = &net.IPNet{IP: net.IPv4(100, 64, 0, 0), Mask: net.CIDRMask(10, 32)}
 
+// Container/service names: one DNS label starting with a letter, so numeric hosts
+// (http://134744072) and zoned IPv6 literals cannot pass as names.
+var containerName = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9-]{0,62}$`)
+
 // Plain HTTP is allowed only where traffic stays on this host, a container network,
 // a private LAN, or a Tailscale-style 100.64.0.0/10 network.
 func privateHost(host string) bool {
 	ip := net.ParseIP(host)
 	if ip == nil {
-		return host == "localhost" || host != "" && !strings.Contains(host, ".")
+		return containerName.MatchString(host)
 	}
 	return ip.IsLoopback() || ip.IsPrivate() || carrierGradeNAT.Contains(ip)
 }
