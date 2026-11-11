@@ -298,6 +298,7 @@ h3 {
   min-height: 0;
 }
 .sidebar {
+  position: relative;
   overflow: auto;
   background: var(--card);
   border-right: 1px solid var(--border);
