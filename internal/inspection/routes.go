@@ -18,6 +18,7 @@ import (
 	"ganigeorgiev.com/pocketbase/dbx"
 	"ganigeorgiev.com/pocketbase/pocketbase/apis"
 	"ganigeorgiev.com/pocketbase/pocketbase/core"
+	"ganigeorgiev.com/pocketbase/pocketbase/tools/hook"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -43,7 +44,19 @@ func Register(e *core.ServeEvent) {
 	e.Router.POST("/api/inspect/ai/explain", s.explain).Bind(apis.SkipSuccessActivityLog())
 	e.Router.POST("/api/inspect/ai/search", s.aiSearch).Bind(apis.SkipSuccessActivityLog())
 	e.Router.GET("/api/inspect/points", s.points)
-	e.Router.GET("/api/inspect/search", s.search)
+	e.Router.GET("/api/inspect/search", s.search).Bind(apis.SkipSuccessActivityLog(), &hook.Handler[*core.RequestEvent]{
+		Priority: apis.DefaultActivityLoggerMiddlewarePriority - 1,
+		Func: func(e *core.RequestEvent) error {
+			q := e.Request.URL.Query()
+			if q.Has("lat") || q.Has("lon") || q.Has("radius") {
+				// Reject legacy spatial URLs before request logging or rate-limit errors.
+				e.Request.URL.RawQuery = ""
+				return aiError(e, 400, "spatial_get_not_supported")
+			}
+			return e.Next()
+		},
+	})
+	e.Router.POST("/api/inspect/search/nearby", s.nearbySearch).Bind(apis.SkipSuccessActivityLog())
 	e.Router.GET("/api/inspect/facilities/{id}", s.detail)
 	e.Router.POST("/api/inspect/facilities/lookup", s.lookup).Bind(apis.SkipSuccessActivityLog())
 }
@@ -63,22 +76,27 @@ func (s *service) search(e *core.RequestEvent) error {
 			*target = &value
 		}
 	}
-	if q.Has("lat") || q.Has("lon") || q.Get("radius") != "" {
-		lat, err1 := strconv.ParseFloat(q.Get("lat"), 64)
-		lon, err2 := strconv.ParseFloat(q.Get("lon"), 64)
-		if err1 != nil || err2 != nil || math.IsNaN(lat) || math.IsNaN(lon) || math.Abs(lat) > 90 || math.Abs(lon) > 180 {
-			return aiError(e, 400, "nearby_requires_location")
-		}
-		filters.Origin = []float64{lon, lat}
-		filters.Radius = 25
-		if q.Get("radius") != "" {
-			radius, err := strconv.ParseFloat(q.Get("radius"), 64)
-			if err != nil {
-				return aiError(e, 400, "invalid_radius")
-			}
-			filters.Radius = radius
-		}
+	return s.executeSearch(e, filters)
+}
+
+func (s *service) nearbySearch(e *core.RequestEvent) error {
+	e.Response.Header().Set("Cache-Control", "no-store")
+	var input struct {
+		Filters     searchFilters `json:"filters"`
+		Coordinates []float64     `json:"coordinates"`
 	}
+	if !readBoundedJSON(e, &input) || len(input.Coordinates) != 2 {
+		return aiError(e, 400, "nearby_requires_location")
+	}
+	lon, lat := input.Coordinates[0], input.Coordinates[1]
+	if math.IsNaN(lon) || math.IsNaN(lat) || math.Abs(lon) > 180 || math.Abs(lat) > 90 || input.Filters.Radius < 1 {
+		return aiError(e, 400, "invalid_filters")
+	}
+	input.Filters.Origin = input.Coordinates
+	return s.executeSearch(e, input.Filters)
+}
+
+func (s *service) executeSearch(e *core.RequestEvent, filters searchFilters) error {
 	if !validFilters(filters) {
 		return aiError(e, 400, "invalid_filters")
 	}

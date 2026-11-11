@@ -45,8 +45,25 @@ type searchIntent struct {
 	Clarification string   `json:"clarification"`
 }
 
-var qualitativeRequest = regexp.MustCompile(`(?i)\b(safest|safer|cleanest|healthiest|best|open now|open late|cuisine|high scores?|low scores?|good scores?|bad scores?)\b`)
+var qualitativeRequest = regexp.MustCompile(`(?i)\b(safest|safer|cleanest|healthiest|open now|open late|cuisine|high scores?|low scores?|good scores?|bad scores?)\b`)
 var requestNumbers = regexp.MustCompile(`-?\d+(?:\.\d+)?`)
+var milesRequest = regexp.MustCompile(`(?i)(-?\d+(?:\.\d+)?)\s*(?:miles?|mi)\b`)
+var distanceRequest = regexp.MustCompile(`(?i)\b(radius|within|kilomet\w*|km|met(?:er|re)s?|minutes?|blocks?)\b`)
+
+func explicitNumbers(text string) map[float64]bool {
+	numbers := map[float64]bool{}
+	for _, bounds := range requestNumbers.FindAllStringIndex(text, -1) {
+		raw := text[bounds[0]:bounds[1]]
+		prefix := strings.TrimSpace(text[:bounds[0]])
+		// A hyphen following a numeric endpoint is a range separator, not a sign.
+		if strings.HasPrefix(raw, "-") && len(prefix) > 0 && prefix[len(prefix)-1] >= '0' && prefix[len(prefix)-1] <= '9' {
+			raw = strings.TrimPrefix(raw, "-")
+		}
+		value, _ := strconv.ParseFloat(raw, 64)
+		numbers[value] = true
+	}
+	return numbers
+}
 
 func (s *service) aiSearch(e *core.RequestEvent) error {
 	e.Response.Header().Set("Cache-Control", "no-store")
@@ -59,7 +76,7 @@ func (s *service) aiSearch(e *core.RequestEvent) error {
 	var input struct {
 		Text string `json:"text"`
 	}
-	if !readAI(e, &input) || strings.TrimSpace(input.Text) == "" || len(input.Text) > 1000 || !validText(input.Text) {
+	if !readBoundedJSON(e, &input) || strings.TrimSpace(input.Text) == "" || len(input.Text) > 1000 || !validText(input.Text) {
 		return aiError(e, 400, "invalid_request")
 	}
 	if qualitativeRequest.MatchString(input.Text) {
@@ -105,8 +122,25 @@ func (s *service) aiSearch(e *core.RequestEvent) error {
 			}
 			return json.Marshal(searchIntent{Clarification: intent.Clarification})
 		}
+		if intent.Nearby {
+			distances := milesRequest.FindAllStringSubmatch(input.Text, -1)
+			if len(distances) == 0 {
+				if distanceRequest.MatchString(input.Text) || intent.Radius != 0 && intent.Radius != 25 {
+					return json.Marshal(searchIntent{Clarification: "Specify a nearby radius in miles, or use Near me for the default 25 miles."})
+				}
+				intent.Radius = 25
+			} else {
+				if len(distances) != 1 {
+					return json.Marshal(searchIntent{Clarification: "Specify one nearby radius in miles."})
+				}
+				distance, _ := strconv.ParseFloat(distances[0][1], 64)
+				if distance < 1 || distance > 100 || intent.Radius != distance {
+					return json.Marshal(searchIntent{Clarification: "Specify a radius between 1 and 100 miles and try again."})
+				}
+			}
+		}
 		f := searchFilters{Name: intent.Name, Address: intent.Address, Permit: intent.Permit, MinScore: intent.MinScore, MaxScore: intent.MaxScore, Sort: intent.Sort, Radius: intent.Radius}
-		if !validFilters(f) || intent.Nearby && intent.Radius == 0 || !intent.Nearby && intent.Radius != 0 {
+		if !validFilters(f) || !intent.Nearby && intent.Radius != 0 {
 			return nil, errProvider
 		}
 		if intent.Permit != "" {
@@ -126,11 +160,7 @@ func (s *service) aiSearch(e *core.RequestEvent) error {
 				return nil, errProvider
 			}
 		}
-		numbers := map[float64]bool{}
-		for _, raw := range requestNumbers.FindAllString(input.Text, -1) {
-			value, _ := strconv.ParseFloat(raw, 64)
-			numbers[value] = true
-		}
+		numbers := explicitNumbers(input.Text)
 		for _, n := range []*float64{intent.MinScore, intent.MaxScore} {
 			if n != nil && !numbers[*n] {
 				return json.Marshal(searchIntent{Clarification: "Please state an explicit numeric minimum or maximum inspection score."})

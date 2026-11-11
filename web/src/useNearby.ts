@@ -58,10 +58,10 @@ export function useNearby(snapshot: Snapshot | null, permit: string, area: MapAr
     if (!snapshot) return []
     const local = snapshot.points.filter(p => {
       if (area) return inBounds(p, area)
-      return !!origin && distanceMiles(origin.coordinates, p.coordinates) <= 25
+      return !!origin && distanceMiles(origin.coordinates, p.coordinates) <= Number(filters.radius || 25)
     })
     return [...new Set(local.flatMap(p => p.permitType ? [p.permitType] : []))].sort()
-  }, [snapshot, area, origin])
+  }, [snapshot, area, origin, filters.radius])
   const [source, setSource] = useState<{ key: string; facilities: Facility[]; error: string } | null>(null)
   const [retryVersion, setRetryVersion] = useState(0)
   const sourceKey = JSON.stringify([origin?.coordinates, filters, permit, sort])

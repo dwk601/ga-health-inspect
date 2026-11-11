@@ -162,6 +162,9 @@ h3 {
 .ai-citations { font-size: 0.8rem; margin-block: 0.4rem 0.8rem; }
 .ai-explanation p:empty, .discovery-filters p:empty { display: none; }
 .discovery-filters { margin-block-start: 1rem; font-size: 0.875rem; }
+.active-filters { margin-block-start: 1rem; font-size: 0.875rem; }
+.active-filters ul { list-style: none; display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0; margin: 0 0 0.5rem; }
+.active-filters li { padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 5px; overflow-wrap: anywhere; }
 .discovery-filters summary { padding-block: 0.75rem; }
 .discovery-filters form { display: grid; gap: 0.6rem; margin-block: 1rem; }
 .discovery-filters form + form { border-top: 1px solid var(--border); padding-top: 1rem; }
@@ -182,7 +185,7 @@ h3 {
 .comparison header > p { max-width: 72ch; color: var(--muted-foreground); }
 .comparison h2 { font-size: 1.4rem; }
 .comparison h3 { font-size: 1.125rem; }
-.comparison h4 { font-size: 1rem; margin-block: 1.5rem 0.5rem; }
+.comparison h4 { font-size: 1rem; font-weight: 650; margin-block: 1.5rem 0.5rem; }
 .comparison-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); gap: 1.5rem; }
 .comparison-grid article { min-width: 0; border-top: 1px solid var(--border); }
 .comparison dl { margin-block: 1rem; }
@@ -306,6 +309,7 @@ h3 {
   top: 0;
   z-index: 1;
 }
+.directory-head:has(.discovery-filters[open]) { position: static; }
 .search-header {
   display: grid;
   gap: 0.6rem;
@@ -974,7 +978,9 @@ textarea {
     clip-path: inset(50%);
   }
   .results-heading { padding-left: 0.8rem; }
-  .sidebar .facility-row { margin: .5rem .8rem; width: calc(100% - 1.6rem); padding: 1rem; border: 1px solid var(--border); border-radius: 12px; }
+  .facility-list-entry { margin: .5rem .8rem; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .sidebar .facility-list-entry .facility-row { margin: 0; width: 100%; padding: 1rem; border: 0; border-radius: 0; }
+  .facility-list-entry .compare-choice { padding-inline: 1rem; }
   .nearby-description, .directory-notice, .nearby-status { padding-inline: .8rem; }
   .list-filters { padding-inline: .8rem; }
   .sidebar .skip-link { margin-inline: .8rem; }

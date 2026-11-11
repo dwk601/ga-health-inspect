@@ -29,7 +29,11 @@ export function DiscoveryFilters({ filters, onFilters, onIntent, nearby, cancelK
     finally { if (!next.signal.aborted) setBusy(false) }
   }
   function change(field: keyof SearchFilters, value: string) { cancel(); setDraft({ ...draft, [field]: value }) }
-  return <details className="discovery-filters">
+  const active = [filters.name && `Name: ${filters.name}`, filters.address && `Address: ${filters.address}`, filters.minScore && `Score ≥ ${filters.minScore}`, filters.maxScore && `Score ≤ ${filters.maxScore}`, nearby && `Within ${filters.radius || 25} miles`].filter(Boolean)
+  function clear() { cancel(); onFilters({ name: '', address: '', minScore: '', maxScore: '', radius: '25' }) }
+  return <>
+    {active.length > 0 && <div className="active-filters"><ul role="list" aria-label="Active extra filters">{active.map(label => <li key={String(label)}>{label}</li>)}</ul><button type="button" onClick={clear}>Clear extra filters</button></div>}
+    <details className="discovery-filters">
     <summary>More filters & AI search</summary>
     <form aria-label="Natural-language search" onSubmit={event => { event.preventDefault(); void interpret() }}>
       <label htmlFor="ai-search">Describe your search</label>
@@ -47,7 +51,7 @@ export function DiscoveryFilters({ filters, onFilters, onIntent, nearby, cancelK
       </div>
       {nearby && <><label htmlFor="near-radius">Nearby radius (miles)</label><input id="near-radius" name="radius" type="number" min={1} max={100} step="any" required value={draft.radius} onChange={event => change('radius', event.target.value)} /></>}
       <p className="muted">Scores are source values, not visitor ratings. Different permit types may use different scales.</p>
-      <div className="ai-actions"><button type="submit">Apply filters</button><button type="button" onClick={() => { cancel(); onFilters({ name: '', address: '', minScore: '', maxScore: '', radius: '25' }) }}>Clear extra filters</button></div>
+      <div className="ai-actions"><button type="submit">Apply filters</button><button type="button" onClick={clear}>Clear extra filters</button></div>
     </form>
-  </details>
+  </details></>
 }

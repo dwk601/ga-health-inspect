@@ -92,7 +92,7 @@ func decodeStrict(data []byte, target any) error {
 	}
 	return nil
 }
-func readAI(e *core.RequestEvent, target any) bool {
+func readBoundedJSON(e *core.RequestEvent, target any) bool {
 	mediaType, _, err := mime.ParseMediaType(e.Request.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
 		return false
@@ -144,7 +144,7 @@ func (s *service) explanationEvidence(ctx context.Context, input aiInput) ([]byt
 			}
 			found = true
 			id := fmt.Sprintf("inspection-%d", n+1)
-			source := aiSource{ID: id, FacilityID: selection.FacilityID, InspectionID: record.ID, Label: sourceLabel(detail.Facility.Name, raw)}
+			source := aiSource{ID: id, FacilityID: selection.FacilityID, InspectionID: record.ID, Label: sourceLabel(detail.Facility, raw)}
 			if strings.HasPrefix(record.PrintableURL, "https://") || strings.HasPrefix(record.PrintableURL, "http://") {
 				source.URL = record.PrintableURL
 			}
@@ -160,14 +160,19 @@ func (s *service) explanationEvidence(ctx context.Context, input aiInput) ([]byt
 	return body, sources, err
 }
 
-func sourceLabel(name *string, raw []byte) string {
+func sourceLabel(facility facility, raw []byte) string {
 	var record struct {
 		Date *string `json:"inspectionDate"`
 	}
 	_ = json.Unmarshal(raw, &record)
 	label := "Facility inspection"
-	if name != nil && strings.TrimSpace(*name) != "" {
-		label = *name
+	if facility.Name != nil && strings.TrimSpace(*facility.Name) != "" {
+		label = *facility.Name
+	}
+	if facility.Address != nil && strings.TrimSpace(*facility.Address) != "" {
+		label += " · " + strings.TrimSpace(*facility.Address)
+	} else {
+		label += " · Address unavailable (" + facility.ID + ")"
 	}
 	if record.Date != nil {
 		label += " · " + strings.Split(*record.Date, "T")[0]
@@ -177,6 +182,8 @@ func sourceLabel(name *string, raw []byte) string {
 
 // Conservative output checks, not semantic entailment or a safety guarantee.
 var prohibitedClaim = regexp.MustCompile(`(?i)\b(safe(?:st|r|ty)?|unsafe|risks?|grades?|scores?|dates?|codes?|winner|best|healthiest|guarantee[sd]?|recommend\w*|segur[oa]s?|seguridad|riesgos?|peligros[oa]s?|saludable[s]?|ganador\w*|mejor(?:es)?|garanti\w*|recomiend\w*|recomend\w*|puntuaci[oó]n|calificaci[oó]n|fechas?|c[oó]digos?)\b`)
+var comparativeRanking = regexp.MustCompile(`(?i)\b(worse|worst|better|cleaner|cleanest|dirtier|dirtiest|superior|inferior|peor(?:es)?|mejor(?:es)?|m[aá]s\s+(?:limpi[oa]s?|suci[oa]s?|segur[oa]s?))\b`)
+
 var generatedLink = regexp.MustCompile(`(?i)(://|www\.|(?:[a-z0-9-]+\.)+[a-z]{2,}|mailto:|javascript:)`)
 
 func validateAnswer(body []byte, sources []aiSource) ([]byte, error) {
@@ -226,7 +233,7 @@ func (s *service) explain(e *core.RequestEvent) error {
 	defer cancelBudget()
 	e.Request = e.Request.WithContext(ctxBudget)
 	var input aiInput
-	if !readAI(e, &input) || !validAISelections(input) || input.Language != "" && input.Language != "en" && input.Language != "es" {
+	if !readBoundedJSON(e, &input) || !validAISelections(input) || input.Language != "" && input.Language != "en" && input.Language != "es" {
 		return aiError(e, 400, "invalid_request")
 	}
 	ctx, cancel := requestContext(e)
@@ -259,6 +266,9 @@ func (s *service) explain(e *core.RequestEvent) error {
 		}
 		cited := map[string]bool{}
 		for _, b := range answer.Bullets {
+			if comparativeRanking.MatchString(b.Text) {
+				return nil, errProvider
+			}
 			for _, id := range b.Citations {
 				cited[id] = true
 			}
@@ -292,6 +302,9 @@ func (s *service) explain(e *core.RequestEvent) error {
 			return nil, errProvider
 		}
 		for n, b := range answer.Bullets {
+			if input.Task == "compare" && comparativeRanking.MatchString(b.Text) {
+				return nil, errProvider
+			}
 			if strings.Join(b.Citations, "\x00") != strings.Join(original.Bullets[n].Citations, "\x00") {
 				return nil, errProvider
 			}
@@ -357,6 +370,9 @@ func (s *service) aiResult(e *core.RequestEvent, task, prompt string, input []by
 						pending.status, pending.code = 504, "timeout"
 					}
 				}
+			}
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) && pending.status != 200 {
+				pending.status, pending.code = 504, "timeout"
 			}
 			a.mu.Lock()
 			if pending.status == 200 {

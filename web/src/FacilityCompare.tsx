@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getDetail } from './api'
-import { facilityTitle } from './facilityName'
+import { facilityTitle, facilityLabel } from './facilityName'
 import { formatDate } from './format'
 import { FindingsStatus, safeLink } from './FacilityDetail'
 import { InspectionExplanation } from './InspectionExplanation'
@@ -32,12 +32,12 @@ export function ComparisonTray({ ids, items, names, onRemove, onClear, onView }:
   if (!ids.length) return null
   return <section className="comparison-tray" aria-label="Selected places for comparison">
     <h2 id="comparison-selection-title" tabIndex={-1}>Compare places ({ids.length}/3)</h2>
-    <ul>{ids.map((id, index) => {
+    <ul role="list">{ids.map((id, index) => {
       const detail = items.find(item => item.id === id)?.detail
-      const name = detail ? facilityTitle(detail.facility) : names.get(id) || `Place ${index + 1}`
+      const name = detail ? facilityLabel(detail.facility) : names.get(id) || `Place ${index + 1}`
       return <li key={id}><span>{name}</span><button type="button" aria-label={`Remove ${name} from comparison`} onClick={() => onRemove(id)}>Remove</button></li>
     })}</ul>
-    <div className="ai-actions">{ids.length >= 2 ? <button type="button" onClick={onView}>View comparison</button> : <p className="muted">Choose one or two more places from the list or a facility page.</p>}<button type="button" onClick={onClear}>Clear comparison</button>{ids.length >= 2 && <a href={`/?${new URLSearchParams({ compare: ids.join(',') })}`}>Shareable comparison link</a>}</div>
+    <div className="ai-actions">{ids.length >= 2 ? <button type="button" id="comparison-view-action" onClick={onView}>View comparison</button> : <p className="muted">Choose one or two more places from the list or a facility page.</p>}<button type="button" onClick={onClear}>Clear comparison</button>{ids.length >= 2 && <a href={`/?${new URLSearchParams({ compare: ids.join(',') })}`}>Shareable comparison link</a>}</div>
   </section>
 }
 
@@ -60,7 +60,7 @@ export function FacilityCompare({ items, retry, onRemove, onClear }: { items: Co
       const report = safeLink(inspection?.printableUrl ?? null)
       return <article key={item.id}>
         <h3>{facilityTitle(detail.facility)}</h3><p className="muted">{detail.facility.address || 'Address unavailable'}</p>
-        <button type="button" onClick={() => onRemove(item.id)} aria-label={`Remove ${facilityTitle(detail.facility)} from comparison`}>Remove</button>
+        <button type="button" onClick={() => onRemove(item.id)} aria-label={`Remove ${facilityLabel(detail.facility)} from comparison`}>Remove</button>
         <dl>
           <div><dt>Permit type</dt><dd>{detail.facility.permitType || 'Unavailable'}</dd></div>
           <div><dt>Inspection score</dt><dd className="comparison-score">{inspection?.score ?? 'Unavailable'}</dd></div>

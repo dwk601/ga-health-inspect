@@ -36,11 +36,15 @@ const facilityCache = new Map<string, { expires: number; facility: Facility | nu
 
 export async function search(q: string, permit: string, sort: string, signal: AbortSignal, filters?: SearchFilters, origin?: [number, number]) {
   const params = new URLSearchParams({ q, permit, sort, name: filters?.name ?? '', address: filters?.address ?? '', minScore: filters?.minScore ?? '', maxScore: filters?.maxScore ?? '' })
-  if (origin) { params.set('lon', String(origin[0])); params.set('lat', String(origin[1])); params.set('radius', filters?.radius || '25') }
-  const key = params.toString()
+  const key = JSON.stringify([params.toString(), origin ?? null, origin ? filters?.radius || '25' : null])
   const cached = searchCache.get(key)
   if (cached && cached.expires > Date.now()) return cached.data
-  const data = await get<{ facilities: Facility[] }>(`/api/inspect/search?${params}`, signal)
+  let data: { facilities: Facility[] }
+  if (origin) {
+    const response = await fetch('/api/inspect/search/nearby', { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal, body: JSON.stringify({ coordinates: origin, filters: { q, permit, sort, name: filters?.name ?? '', address: filters?.address ?? '', minScore: filters?.minScore ? Number(filters.minScore) : null, maxScore: filters?.maxScore ? Number(filters.maxScore) : null, radius: Number(filters?.radius || 25) } }) })
+    if (!response.ok) throw new Error('Nearby search is unavailable. Check your filters or try again.')
+    data = await response.json() as { facilities: Facility[] }
+  } else data = await get<{ facilities: Facility[] }>(`/api/inspect/search?${params}`, signal)
   if (!signal.aborted) {
     searchCache.delete(key); searchCache.set(key, { expires: Date.now() + 300000, data })
     if (searchCache.size > 20) searchCache.delete(searchCache.keys().next().value!)
@@ -84,7 +88,7 @@ export async function requestAI<T>(task: 'explain' | 'search', input: unknown, s
       busy: 'AI is busy. Try again shortly.',
       timeout: 'AI took too long. Try again or use the original records.',
       source_changed: 'The source record changed. Reload the page to review the updated record before asking AI again.',
-      source_unavailable: 'Complete source findings are unavailable for this inspection. Use the original report.',
+      source_unavailable: task === 'search' ? 'Search data is unavailable. Try again later or use manual search.' : 'Complete source findings are unavailable for this inspection. Use the original report.',
       source_too_large: 'This record is too long for AI. Use the original report.',
     }
     throw new Error(messages[data.error ?? ''] ?? (response.status === 429 ? 'Too many AI requests. Please wait a minute.' : 'AI could not produce a supported answer. Original records remain available.'))

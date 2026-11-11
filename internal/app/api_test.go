@@ -20,6 +20,7 @@ import (
 	"ganigeorgiev.com/pocketbase/pocketbase"
 	"ganigeorgiev.com/pocketbase/pocketbase/apis"
 	"ganigeorgiev.com/pocketbase/pocketbase/core"
+	"ganigeorgiev.com/pocketbase/pocketbase/tools/logger"
 	"github.com/jackc/pgx/v5"
 	"github.com/redis/go-redis/v9"
 )
@@ -238,7 +239,7 @@ func TestInspectionAPI(t *testing.T) {
 		}
 		return res.StatusCode, res.Header, body
 	}
-	server, _ := start(database, redisURL)
+	server, inspectionApp := start(database, redisURL)
 	// Hold the source query so a second request can join the first fill before its caller cancels.
 	lock, err := admin.Begin(ctx)
 	if err != nil {
@@ -497,23 +498,34 @@ INSERT INTO public.facilities(source_id,name,address,permit_type,last_inspection
 			}
 		}()
 		for _, tc := range []struct {
-			query  string
-			count  int
-			first  string
-			status int
+			query   string
+			count   int
+			first   string
+			status  int
+			payload string
 		}{
-			{"address=Filter+Lane&permit=Restaurant&minScore=90&maxScore=100", 2, "filter-test-125", 200},
-			{"address=Filter+Lane&permit=Restaurant&minScore=90&maxScore=100&lat=33.749&lon=-84.388&radius=25", 1, "filter-test-125", 200},
-			{"address=Filter+Lane&lat=33.749&lon=-84.388&radius=25&sort=score-desc", 20, "filter-test-125", 200},
-			{"address=Filter+Lane&minScore=90&lat=33.749&lon=-84.388&radius=1", 0, "", 200},
-			{"address=Filter+Lane&maxScore=10", 100, "", 200},
-			{"name=qualifying&address=Filter+Lane", 1, "filter-test-125", 200},
-			{"name=Filter+Lane", 0, "", 200},
-			{"minScore=100&maxScore=10", 0, "", 400},
-			{"minScore=NaN", 0, "", 400},
-			{"radius=5", 0, "", 400},
+			{"address=Filter+Lane&permit=Restaurant&minScore=90&maxScore=100", 2, "filter-test-125", 200, ""},
+			{"", 1, "filter-test-125", 200, `{"filters":{"address":"Filter Lane","permit":"Restaurant","minScore":90,"maxScore":100,"radius":25},"coordinates":[-84.388,33.749]}`},
+			{"", 20, "filter-test-125", 200, `{"filters":{"address":"Filter Lane","sort":"score-desc","radius":25},"coordinates":[-84.388,33.749]}`},
+			{"", 0, "", 200, `{"filters":{"address":"Filter Lane","minScore":90,"radius":1},"coordinates":[-84.388,33.749]}`},
+			{"address=Filter+Lane&maxScore=10", 100, "", 200, ""},
+			{"name=qualifying&address=Filter+Lane", 1, "filter-test-125", 200, ""},
+			{"name=Filter+Lane", 0, "", 200, ""},
+			{"minScore=100&maxScore=10", 0, "", 400, ""},
+			{"minScore=NaN", 0, "", 400, ""},
+			{"radius=5", 0, "", 400, ""},
+			{"lat=33.749&lon=-84.388&radius=25", 0, "", 400, ""},
+			{"", 0, "", 400, `{"filters":{"radius":25},"coordinates":[]}`},
+			{"", 0, "", 400, `{"filters":{"radius":200},"coordinates":[-84.388,33.749]}`},
+			{"", 0, "", 400, strings.Repeat("x", 4097)},
 		} {
-			code, _, body := request(server, "/api/inspect/search?"+tc.query, nil)
+			path := "/api/inspect/search?" + tc.query
+			payload := []string{}
+			if tc.payload != "" {
+				path = "/api/inspect/search/nearby"
+				payload = append(payload, tc.payload)
+			}
+			code, _, body := request(server, path, map[string]string{"Content-Type": "application/json"}, payload...)
 			var result struct {
 				Facilities []struct {
 					ID string `json:"id"`
@@ -522,6 +534,29 @@ INSERT INTO public.facilities(source_id,name,address,permit_type,last_inspection
 			if err := json.Unmarshal(body, &result); err != nil || code != tc.status || len(result.Facilities) != tc.count || tc.first != "" && result.Facilities[0].ID != tc.first {
 				t.Errorf("authoritative filters %s: %d %s", tc.query, code, body)
 			}
+		}
+		request(server, "/api/health?privacy-control", nil)
+		flushCtx := context.WithValue(ctx, logger.BlockKey, true)
+		if err := inspectionApp.Logger().Handler().(*logger.BatchHandler).WriteAll(flushCtx); err != nil {
+			t.Fatal(err)
+		}
+		var logs []struct {
+			Data string `db:"data"`
+		}
+		if err := inspectionApp.AuxDB().NewQuery(`SELECT data FROM _logs`).All(&logs); err != nil {
+			t.Fatal(err)
+		}
+		control := false
+		for _, log := range logs {
+			if strings.Contains(log.Data, "privacy-control") {
+				control = true
+			}
+			if strings.Contains(log.Data, "33.749") || strings.Contains(log.Data, "-84.388") {
+				t.Errorf("device coordinates persisted in request log: %s", log.Data)
+			}
+		}
+		if !control {
+			t.Fatal("request log control missing")
 		}
 	}()
 	if _, err = admin.Exec(ctx, `INSERT INTO public.etl_runs (started,finished,status,options,next_page) VALUES (now(), '2098-01-01', 'failed', '{}', 1)`); err != nil {
