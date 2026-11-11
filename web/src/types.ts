@@ -9,6 +9,7 @@ export type Evidence = { source: 'state' | 'gnr'; findingsStatus: 'available' | 
 export type Inspection = { contentHash: string; evidence: Evidence; id: string; inspectionDate: string | null; purpose: string | null; score: number | null; grade: string | null; timeIn: string | null; timeOut: string | null; comments: string | null; inspector: string | null; printableUrl: string | null; violations: Violation[] }
 export type Detail = { facility: Facility; inspections: Inspection[]; community: { ratingAverage: number | null; ratingCount: number } }
 export type ComparisonSelection = { ids: string[]; toggle: (id: string) => void }
+export type AIUsage = { enabled: boolean; limit: number; used: number; remaining: number; resetsAt: string }
 export type AISelection = { facilityId: string; inspectionId: string; contentHash: string }
 export type AIAnswer = { original?: AIAnswer; bullets: { text: string; citations: string[] }[]; sources: { id: string; facilityId: string; inspectionId: string; label: string; url?: string }[] }
 export type Contribution = { id: string; owner: string; facility_id: string; authorName: string; rating?: number; body?: string; created: string }

@@ -41,8 +41,9 @@ func Register(e *core.ServeEvent) {
 		}
 		return event.Next()
 	})
-	e.Router.POST("/api/inspect/ai/explain", s.explain).Bind(apis.SkipSuccessActivityLog())
-	e.Router.POST("/api/inspect/ai/search", s.aiSearch).Bind(apis.SkipSuccessActivityLog())
+	e.Router.POST("/api/inspect/ai/explain", s.explain).Bind(apis.RequireAuth("users"), apis.SkipSuccessActivityLog())
+	e.Router.POST("/api/inspect/ai/search", s.aiSearch).Bind(apis.RequireAuth("users"), apis.SkipSuccessActivityLog())
+	e.Router.GET("/api/inspect/ai/usage", s.aiUsage).Bind(apis.RequireAuth("users"), apis.SkipSuccessActivityLog())
 	e.Router.GET("/api/inspect/points", s.points)
 	e.Router.GET("/api/inspect/search", s.search).Bind(apis.SkipSuccessActivityLog(), &hook.Handler[*core.RequestEvent]{
 		Priority: apis.DefaultActivityLoggerMiddlewarePriority - 1,

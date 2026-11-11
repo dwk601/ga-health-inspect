@@ -12,6 +12,7 @@ import { ComparisonTray, FacilityCompare, useComparison } from './FacilityCompar
 import { facilityLabel } from './facilityName'
 import { DiscoveryFilters } from './DiscoveryFilters'
 import { AuthPanel } from './AuthPanel'
+import { AIUsageProvider } from './AIUsage'
 import { AccountLink } from './AccountLink'
 import type { Detail, Facility, MapArea, Snapshot, SearchFilters, SearchIntent, ComparisonSelection } from './types'
 
@@ -371,7 +372,7 @@ export default function App() {
   const accountRoute = path.match(/^\/(verify|reset-password)\/([^/]+)\/?$/)
   if (accountRoute) return <AccountLink key={path} kind={accountRoute[1] as 'verify' | 'reset-password'} token={accountRoute[2]} />
 
-  return <>
+  return <AIUsageProvider userId={user?.collectionName === 'users' ? user.id : ''} onSignIn={() => setAuth(true)}>
     <div className="sr-only" role="status" aria-atomic="true">{(nearby.active || area) && !status.error ? status.text : ''}</div>
     <div className="sr-only" role="alert" aria-atomic="true">{(nearby.active || area) && status.error ? status.text : ''}</div>
     <Header theme={theme} toggleTheme={toggleTheme} user={user} auth={auth} setAuth={setAuth} home={() => select(null)} accountRef={accountRef} />
@@ -397,5 +398,5 @@ export default function App() {
       </div>
       <div className="mobile-switch" role="group" aria-label="View"><button aria-pressed={!mobileMap} onClick={() => setMobileMap(false)}>List</button><button aria-pressed={mobileMap} onClick={() => setMobileMap(true)}>{comparing ? 'Compare' : 'Map'}</button></div>
     </main>
-  </>
+  </AIUsageProvider>
 }

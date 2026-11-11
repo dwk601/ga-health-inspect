@@ -15,11 +15,242 @@ import (
 	"time"
 
 	"ganigeorgiev.com/pocketbase/dbx"
+	"ganigeorgiev.com/pocketbase/pocketbase/core"
+	"ganigeorgiev.com/pocketbase/pocketbase/tools/security"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5"
 )
 
+func aiTestUser(t *testing.T, app core.App, collection, name string) (*core.Record, string) {
+	t.Helper()
+	col, err := app.FindCollectionByNameOrId(collection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := core.NewRecord(col)
+	record.SetEmail(name + "@example.test")
+	record.SetPassword("password1234")
+	if collection == "users" {
+		record.Set("name", name)
+		record.Set("role", "user")
+	}
+	if err := app.Save(record); err != nil {
+		t.Fatal(err)
+	}
+	token, err := record.NewAuthToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record, token
+}
+
 // The fake implements only the external Chat Completions transport. All evidence,
 // validation, caching and durable spend controls run through the real application API.
+func testAIUserUsage(t *testing.T) {
+	for _, scenario := range []string{"auth guards", "shared actions", "stored usage", "configuration", "invalid configuration"} {
+		t.Run(scenario, func(t *testing.T) {
+			var calls atomic.Int32
+			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				var request struct{ Messages []struct{ Content string } }
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil || len(request.Messages) != 2 {
+					t.Error("invalid provider request", err)
+					return
+				}
+				content := `{"bullets":[{"text":"The inspector recorded a finding.","citations":["inspection-1"]}]}`
+				if strings.HasPrefix(request.Messages[0].Content, "Convert the request") {
+					content = `{"name":"Subway"}`
+				} else if strings.Contains(request.Messages[0].Content, "EVERY facility") {
+					content = `{"bullets":[{"text":"The records describe handwashing and storage findings.","citations":["inspection-1","inspection-2"]}]}`
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"finish_reason": "stop", "message": map[string]string{"content": content}}}})
+			}))
+			defer provider.Close()
+			t.Setenv("AI_BASE_URL", provider.URL+"/v1")
+			t.Setenv("AI_MODEL", "fixture-model")
+			t.Setenv("AI_API_KEY", "")
+			t.Setenv("AI_DAILY_LIMIT", "100")
+			t.Setenv("AI_USER_DAILY_LIMIT", "3")
+			if scenario == "configuration" {
+				t.Setenv("AI_USER_DAILY_LIMIT", "0")
+			} else if scenario == "invalid configuration" {
+				t.Setenv("AI_USER_DAILY_LIMIT", "100001")
+			}
+			server, pb := startTestServer(t)
+			a, tokenA := aiTestUser(t, pb, "users", "account-a") // No verification requirement.
+			b, tokenB := aiTestUser(t, pb, "users", "account-b")
+			request := func(method, path, token, body string, want int, code string) (http.Header, []byte) {
+				t.Helper()
+				req, err := http.NewRequest(method, server.URL+"/api/inspect/ai/"+path, strings.NewReader(body))
+				if err != nil {
+					t.Fatal(err)
+				}
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Authorization", token)
+				req.Header.Set("X-User-ID", b.Id)
+				res, err := http.DefaultClient.Do(req)
+				if err != nil {
+					t.Error(err)
+					return nil, nil
+				}
+				defer res.Body.Close()
+				data, _ := io.ReadAll(res.Body)
+				if want != 0 && res.StatusCode != want || code != "" && !strings.Contains(string(data), `"error":"`+code+`"`) {
+					t.Errorf("%s %s: status=%d body=%s want=%d/%s", method, path, res.StatusCode, data, want, code)
+				}
+				res.Header.Set("Test-Status", res.Status)
+				return res.Header, data
+			}
+			usage := func(token string, used, remaining, limit int, enabled bool) {
+				t.Helper()
+				h, data := request("GET", "usage", token, "", 200, "")
+				var result struct {
+					Enabled                bool
+					Limit, Used, Remaining int
+					ResetsAt               string
+				}
+				err := json.Unmarshal(data, &result)
+				reset, resetErr := time.Parse(time.RFC3339, result.ResetsAt)
+				if err != nil || resetErr != nil || result.Enabled != enabled || result.Limit != limit || result.Used != used || result.Remaining != remaining || reset.UTC().Hour() != 0 || !reset.After(time.Now()) || h.Get("Cache-Control") != "no-store" {
+					t.Errorf("usage: %s headers=%v errors=%v/%v", data, h, err, resetErr)
+				}
+			}
+			selection := func(id string) map[string]string {
+				t.Helper()
+				res, err := http.Get(server.URL + "/api/inspect/facilities/" + id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer res.Body.Close()
+				var detail struct {
+					Inspections []struct{ ID, ContentHash string }
+				}
+				if err := json.NewDecoder(res.Body).Decode(&detail); err != nil {
+					t.Fatal(err)
+				}
+				for _, item := range detail.Inspections {
+					if item.ID == "1" {
+						return map[string]string{"facilityId": id, "inspectionId": "1", "contentHash": item.ContentHash}
+					}
+				}
+				t.Fatal("fixture inspection absent")
+				return nil
+			}
+			explainBody, _ := json.Marshal(map[string]any{"task": "explain", "selections": []any{selection("ai-test")}})
+			explain := string(explainBody)
+			qualitative := `{"text":"safest restaurants"}`
+			switch scenario {
+			case "auth guards":
+				request("POST", "explain", tokenA, explain, 200, "") // Warm cache cannot bypass auth.
+				_, superToken := aiTestUser(t, pb, "_superusers", "super")
+				expired, err := security.NewJWT(jwt.MapClaims{core.TokenClaimId: a.Id, core.TokenClaimCollectionId: a.Collection().Id, core.TokenClaimType: core.TokenTypeAuth}, a.TokenKey()+a.Collection().AuthToken.Secret, -time.Hour)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, auth := range []struct {
+					token  string
+					status int
+				}{{"", 401}, {"invalid", 401}, {expired, 401}, {superToken, 403}} {
+					request("POST", "explain", auth.token, explain, auth.status, "")
+					request("POST", "search", auth.token, qualitative, auth.status, "")
+					request("GET", "usage", auth.token, "", auth.status, "")
+				}
+				usage(tokenA, 1, 2, 3, true)
+				usage(tokenB, 0, 3, 3, true)
+				if calls.Load() != 1 {
+					t.Fatal("unauthorized provider spend", calls.Load())
+				}
+			case "shared actions":
+				usage(tokenA, 0, 3, 3, true)
+				request("POST", "search", tokenA, `{"text":"Subway","userId":"`+b.Id+`"}`, 400, "invalid_request")
+				request("POST", "explain", tokenA, strings.Replace(explain, `"contentHash":"`, `"contentHash":"stale`, 1), 400, "invalid_request")
+				usage(tokenA, 0, 3, 3, true)
+				spanish := strings.Replace(explain, `"task":"explain"`, `"task":"explain","language":"es"`, 1)
+				h, _ := request("POST", "explain", tokenA, spanish, 200, "")
+				if h.Get("X-AI-Usage-Used") != "1" || calls.Load() != 2 {
+					t.Error("translation must be one user action and two provider calls", h, calls.Load())
+				}
+				h, _ = request("POST", "explain", tokenA, explain, 200, "")
+				if h.Get("X-AI-Usage-Used") != "2" || calls.Load() != 2 {
+					t.Error("cache must count user action without provider spend", h, calls.Load())
+				}
+				compareBody, _ := json.Marshal(map[string]any{"task": "compare", "selections": []any{selection("ai-test"), selection("ai-other")}})
+				var accepted atomic.Int32
+				var wg sync.WaitGroup
+				for _, action := range []struct{ path, body string }{{"explain", string(compareBody)}, {"search", qualitative}} {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						h, data := request("POST", action.path, tokenA, action.body, 0, "")
+						if strings.HasPrefix(h.Get("Test-Status"), "200") {
+							accepted.Add(1)
+						} else if !strings.Contains(string(data), `"error":"user_daily_limit"`) {
+							t.Errorf("last slot: %s %s", h, data)
+						}
+					}()
+				}
+				wg.Wait()
+				if accepted.Load() != 1 {
+					t.Error("last slot accepted", accepted.Load())
+				}
+				h, _ = request("POST", "explain", tokenA, explain, 429, "user_daily_limit")
+				if h.Get("Retry-After") == "" || h.Get("X-AI-Usage-Remaining") != "0" {
+					t.Error("quota headers", h)
+				}
+				request("POST", "search", tokenA, qualitative, 429, "user_daily_limit")
+				usage(tokenA, 3, 0, 3, true)
+				usage(tokenA, 3, 0, 3, true) // GET never increments.
+				usage(tokenB, 0, 3, 3, true) // X-User-ID was ignored throughout.
+				request("POST", "search", tokenB, `{"text":"Subway"}`, 200, "")
+				request("POST", "search", tokenB, qualitative, 200, "")
+				request("POST", "explain", tokenB, string(compareBody), 200, "")
+				usage(tokenB, 3, 0, 3, true)
+			case "stored usage":
+				exec := func(sql string) {
+					t.Helper()
+					if _, err := pb.DB().NewQuery(sql).Bind(dbx.Params{"user": a.Id}).Execute(); err != nil {
+						t.Fatal(err)
+					}
+				}
+				exec(`INSERT INTO ai_user_usage(user_id,day,requests) VALUES ({:user},date('now'),3)`)
+				request("POST", "explain", tokenA, explain, 429, "user_daily_limit")
+				exec(`UPDATE ai_user_usage SET day=date('now','-1 day') WHERE user_id={:user}`)
+				request("POST", "search", tokenA, qualitative, 200, "")
+				usage(tokenA, 1, 2, 3, true)
+				exec(`UPDATE ai_user_usage SET day=date('now','+1 day') WHERE user_id={:user}`)
+				request("POST", "search", tokenA, qualitative, 503, "quota_unavailable")
+				if err := pb.Delete(a); err != nil {
+					t.Fatal(err)
+				}
+				var rows struct {
+					Count int `db:"count"`
+				}
+				if err := pb.DB().NewQuery(`SELECT count(*) AS count FROM ai_user_usage WHERE user_id={:user}`).Bind(dbx.Params{"user": a.Id}).One(&rows); err != nil || rows.Count != 0 {
+					t.Fatal("deleted account retained usage", rows, err)
+				}
+				exec(`DROP TABLE ai_user_usage`)
+				request("POST", "explain", tokenB, explain, 503, "quota_unavailable")
+				request("POST", "search", tokenB, qualitative, 503, "quota_unavailable")
+				request("GET", "usage", tokenB, "", 503, "quota_unavailable")
+				if calls.Load() != 0 {
+					t.Error("quota failure spent provider calls")
+				}
+			case "invalid configuration":
+				usage(tokenA, 0, 10, 10, true)
+				request("POST", "search", tokenA, qualitative, 200, "")
+				usage(tokenA, 1, 9, 10, true)
+			case "configuration":
+				usage(tokenA, 0, 0, 0, false)
+				request("POST", "explain", tokenA, explain, 503, "disabled")
+				request("POST", "search", tokenA, qualitative, 503, "disabled")
+				if calls.Load() != 0 {
+					t.Error("disabled provider spend")
+				}
+			}
+		})
+	}
+}
+
 func TestInspectionAI(t *testing.T) {
 	database := os.Getenv("DATABASE_URL")
 	u, err := url.Parse(database)
@@ -48,12 +279,14 @@ INSERT INTO public.violations(facility_id,inspection_id,snapshot_hash,source_key
 			t.Error(err)
 		}
 	}()
+	t.Setenv("AI_USER_DAILY_LIMIT", "100")
+	t.Run("user usage", testAIUserUsage)
 	input := `{"task":"explain","selections":[{"facilityId":"ai-test","inspectionId":"1"}]}`
 	valid := `{"bullets":[{"text":"The inspector recorded a handwashing finding.","citations":["inspection-1"]}]}`
 	cases := []struct {
-		name, content, translatedContent, finish, refusal, body, path, want         string
-		status                                                                      int
-		disabled, quota, dbFail, slow, cache, translate, badTranslation, noProvider bool
+		name, content, translatedContent, finish, refusal, body, path, want                            string
+		status                                                                                         int
+		disabled, quota, dbFail, slow, cache, translate, badTranslation, noProvider, sourceUnavailable bool
 	}{
 		{name: "compare two with separate sources", body: `{"task":"compare","selections":[{"facilityId":"ai-test","inspectionId":"1"},{"facilityId":"ai-other","inspectionId":"1"}]}`, content: `{"bullets":[{"text":"The first place has a handwashing finding; the other has a storage finding.","citations":["inspection-1","inspection-2"]}]}`, status: 200},
 		{name: "compare three", body: `{"task":"compare","selections":[{"facilityId":"ai-test","inspectionId":"1"},{"facilityId":"ai-other","inspectionId":"1"},{"facilityId":"ai-third","inspectionId":"1"}]}`, content: `{"bullets":[{"text":"The findings concern handwashing, storage and cleaning respectively.","citations":["inspection-1","inspection-2","inspection-3"]}]}`, status: 200},
@@ -73,6 +306,7 @@ INSERT INTO public.violations(facility_id,inspection_id,snapshot_hash,source_key
 		{name: "unknown permit rejected", path: "search", body: `{"text":"Restaurant"}`, content: `{"permit":"Invented"}`, status: 502},
 		{name: "generated SQL rejected", path: "search", body: `{"text":"Restaurant"}`, content: `{"sql":"SELECT * FROM facilities"}`, status: 502},
 		{name: "qualitative clarification", path: "search", body: `{"text":"safest restaurants with high scores"}`, status: 200, noProvider: true},
+		{name: "qualitative source unavailable no spend", path: "search", body: `{"text":"safest restaurants"}`, status: 422, sourceUnavailable: true},
 		{name: "invented threshold clarification", path: "search", body: `{"text":"Restaurant"}`, content: `{"permit":"Restaurant","minScore":90}`, status: 200},
 		{name: "unsupported constraint clarification", path: "search", body: `{"text":"Thai food"}`, content: `{"clarification":"Cuisine is not supported. Search a name, address or permit type instead."}`, status: 200},
 		{name: "device data not accepted", path: "search", body: `{"text":"near me","coordinates":[-84,33]}`, status: 400},
@@ -160,18 +394,29 @@ INSERT INTO public.violations(facility_id,inspection_id,snapshot_hash,source_key
 			if tc.quota {
 				t.Setenv("AI_DAILY_LIMIT", "0")
 			}
+			if tc.sourceUnavailable {
+				t.Setenv("DATABASE_URL", "")
+			}
 			server, pb := startTestServer(t)
 			if tc.dbFail {
 				if _, err := pb.DB().NewQuery(`DROP TABLE ai_daily_quota`).Execute(); err != nil {
 					t.Fatal(err)
 				}
 			}
+			_, token := aiTestUser(t, pb, "users", "reader")
 			post := func(body string) (int, []byte) {
 				path := tc.path
 				if path == "" {
 					path = "explain"
 				}
-				res, err := http.Post(server.URL+"/api/inspect/ai/"+path, "application/json", strings.NewReader(body))
+				req, err := http.NewRequest(http.MethodPost, server.URL+"/api/inspect/ai/"+path, strings.NewReader(body))
+				if err != nil {
+					t.Error(err)
+					return 0, nil
+				}
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Authorization", token)
+				res, err := http.DefaultClient.Do(req)
 				if err != nil {
 					t.Error(err)
 					return 0, nil
@@ -297,6 +542,18 @@ INSERT INTO public.violations(facility_id,inspection_id,snapshot_hash,source_key
 					t.Error("AI limiter affected ordinary browsing")
 				}
 			}
+			wantActions := 1
+			if tc.status == 400 || tc.status == 422 || tc.disabled {
+				wantActions = 0
+			} else if tc.cache {
+				wantActions = 5 // Three dedup joins, the busy attempt, and the warm-cache action.
+			}
+			var userUsage struct {
+				Requests int `db:"requests"`
+			}
+			if err := pb.DB().NewQuery(`SELECT coalesce(sum(requests),0) AS requests FROM ai_user_usage`).One(&userUsage); err != nil || userUsage.Requests != wantActions {
+				t.Errorf("user actions %+v want %d: %v", userUsage, wantActions, err)
+			}
 			if !tc.dbFail {
 				var quota struct {
 					Requests int `db:"requests"`
@@ -312,6 +569,9 @@ INSERT INTO public.violations(facility_id,inspection_id,snapshot_hash,source_key
 					t.Fatal(err)
 				}
 				staleCode, staleBody := post(body)
+				if err := pb.DB().NewQuery(`SELECT coalesce(sum(requests),0) AS requests FROM ai_user_usage`).One(&userUsage); err != nil || userUsage.Requests != wantActions {
+					t.Errorf("stale source consumed a user action: %+v %v", userUsage, err)
+				}
 				if staleCode != 409 || !strings.Contains(string(staleBody), "source_changed") || calls.Load() != 1 {
 					t.Fatalf("stale source before spend: %d %s", staleCode, staleBody)
 				}

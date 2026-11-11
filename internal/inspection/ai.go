@@ -226,7 +226,7 @@ func validAISelections(input aiInput) bool {
 
 func (s *service) explain(e *core.RequestEvent) error {
 	e.Response.Header().Set("Cache-Control", "no-store")
-	if s.ai.config.base == "" || s.ai.config.model == "" {
+	if !s.ai.config.enabled() {
 		return aiError(e, 503, "disabled")
 	}
 	ctxBudget, cancelBudget := context.WithTimeout(e.Request.Context(), s.ai.config.timeout)
@@ -250,6 +250,9 @@ func (s *service) explain(e *core.RequestEvent) error {
 	}
 	if len(evidence) > s.ai.config.inputBytes {
 		return aiError(e, 422, "source_too_large")
+	}
+	if accepted, err := s.reserveUserAI(e); !accepted {
+		return err
 	}
 	prompt := explanationPrompt
 	if input.Task == "compare" {
@@ -329,6 +332,12 @@ func (s *service) runAI(e *core.RequestEvent, task, prompt string, input []byte,
 }
 
 func (s *service) aiResult(e *core.RequestEvent, task, prompt string, input []byte, validate func([]byte) ([]byte, error)) ([]byte, int, string) {
+	// Usage belongs to this response, never the shared cached answer.
+	defer func() {
+		if usage, err := s.userAIUsage(e); err == nil {
+			usageHeaders(e, usage)
+		}
+	}()
 	key := fmt.Sprintf("%x", sha256.Sum256(append([]byte(s.ai.config.base+"\x00"+s.ai.config.model+"\x00"+task+"\x00"+prompt+"\x00"), input...)))
 	a := s.ai
 	a.mu.Lock()

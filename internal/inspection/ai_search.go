@@ -67,7 +67,7 @@ func explicitNumbers(text string) map[float64]bool {
 
 func (s *service) aiSearch(e *core.RequestEvent) error {
 	e.Response.Header().Set("Cache-Control", "no-store")
-	if s.ai.config.base == "" || s.ai.config.model == "" {
+	if !s.ai.config.enabled() {
 		return aiError(e, 503, "disabled")
 	}
 	ctxBudget, cancelBudget := context.WithTimeout(e.Request.Context(), s.ai.config.timeout)
@@ -78,9 +78,6 @@ func (s *service) aiSearch(e *core.RequestEvent) error {
 	}
 	if !readBoundedJSON(e, &input) || strings.TrimSpace(input.Text) == "" || len(input.Text) > 1000 || !validText(input.Text) {
 		return aiError(e, 400, "invalid_request")
-	}
-	if qualitativeRequest.MatchString(input.Text) {
-		return e.JSON(200, searchIntent{Clarification: "Use an explicit numeric score range, name, address or permit type. Safety, qualitative ratings, cuisine and opening hours are not supported."})
 	}
 	if s.store.pool == nil {
 		return aiError(e, 422, "source_unavailable")
@@ -107,6 +104,12 @@ func (s *service) aiSearch(e *core.RequestEvent) error {
 	body, _ := json.Marshal(map[string]any{"text": input.Text, "permitChoices": choices})
 	if len(body) > s.ai.config.inputBytes {
 		return aiError(e, 422, "source_too_large")
+	}
+	if accepted, err := s.reserveUserAI(e); !accepted {
+		return err
+	}
+	if qualitativeRequest.MatchString(input.Text) {
+		return e.JSON(200, searchIntent{Clarification: "Use an explicit numeric score range, name, address or permit type. Safety, qualitative ratings, cuisine and opening hours are not supported."})
 	}
 	return s.runAI(e, "search:en", searchPrompt, body, func(response []byte) ([]byte, error) {
 		var intent searchIntent
