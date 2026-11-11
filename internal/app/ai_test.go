@@ -344,6 +344,8 @@ INSERT INTO public.violations(facility_id,inspection_id,snapshot_hash,source_key
 		{name: "truncated", content: valid, finish: "length", status: 502},
 		{name: "refusal", content: valid, refusal: "Cannot answer", status: 502},
 		{name: "unsupported safety", content: `{"bullets":[{"text":"This place is safe.","citations":["inspection-1"]}]}`, status: 502},
+		{name: "ordinary inspection vocabulary", content: `{"bullets":[{"text":"A grocery bag stored ground meat; only food-grade containers may be used. The food code requires date marking, a food safety practice.","citations":["inspection-1"]}]}`, status: 200},
+		{name: "grade interpretation rejected", content: `{"bullets":[{"text":"This is a good grade.","citations":["inspection-1"]}]}`, status: 502},
 		{name: "timeout", content: valid, status: 504, slow: true},
 		{name: "quota", status: 429, quota: true},
 		{name: "quota fails closed", status: 503, dbFail: true},

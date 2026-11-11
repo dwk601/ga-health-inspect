@@ -181,7 +181,11 @@ func sourceLabel(facility facility, raw []byte) string {
 }
 
 // Conservative output checks, not semantic entailment or a safety guarantee.
-var prohibitedClaim = regexp.MustCompile(`(?i)\b(safe(?:st|r|ty)?|unsafe|risks?|grades?|scores?|dates?|codes?|winner|best|healthiest|guarantee[sd]?|recommend\w*|segur[oa]s?|seguridad|riesgos?|peligros[oa]s?|saludable[s]?|ganador\w*|mejor(?:es)?|garanti\w*|recomiend\w*|recomend\w*|puntuaci[oó]n|calificaci[oó]n|fechas?|c[oó]digos?)\b`)
+// Ordinary inspection vocabulary (food safety, date marking, food code, food-grade
+// containers) is allowed; conclusions about safety, ranking or scores are not.
+// Digits stay banned, so dates, scores and codes cannot be invented in AI text.
+var prohibitedClaim = regexp.MustCompile(`(?i)\b(safe(?:st|r)?|unsafe|risks?|grades?|scores?|winner|best|healthiest|guarantee[sd]?|recommend\w*|segur[oa]s?|riesgos?|peligros[oa]s?|saludable[s]?|ganador\w*|mejor(?:es)?|garanti\w*|recomiend\w*|recomend\w*|puntuaci[oó]n|calificaci[oó]n)\b`)
+var foodGrade = regexp.MustCompile(`(?i)\bfood[- ]grade\b`)
 var comparativeRanking = regexp.MustCompile(`(?i)\b(worse|worst|better|cleaner|cleanest|dirtier|dirtiest|superior|inferior|peor(?:es)?|mejor(?:es)?|m[aá]s\s+(?:limpi[oa]s?|suci[oa]s?|segur[oa]s?))\b`)
 
 var generatedLink = regexp.MustCompile(`(?i)(://|www\.|(?:[a-z0-9-]+\.)+[a-z]{2,}|mailto:|javascript:)`)
@@ -198,7 +202,7 @@ func validateAnswer(body []byte, sources []aiSource) ([]byte, error) {
 		allowed[source.ID] = true
 	}
 	for _, b := range result.Bullets {
-		if strings.TrimSpace(b.Text) == "" || len(b.Text) > 600 || strings.ContainsAny(b.Text, "<>\x00") || prohibitedClaim.MatchString(b.Text) || generatedLink.MatchString(b.Text) || strings.ContainsFunc(b.Text, unicode.IsNumber) || len(b.Citations) < 1 || len(b.Citations) > len(sources) {
+		if strings.TrimSpace(b.Text) == "" || len(b.Text) > 600 || strings.ContainsAny(b.Text, "<>\x00") || prohibitedClaim.MatchString(foodGrade.ReplaceAllString(b.Text, "")) || generatedLink.MatchString(b.Text) || strings.ContainsFunc(b.Text, unicode.IsNumber) || len(b.Citations) < 1 || len(b.Citations) > len(sources) {
 			return nil, errProvider
 		}
 		for _, id := range b.Citations {
