@@ -47,7 +47,16 @@ func aiTestUser(t *testing.T, app core.App, collection, name string) (*core.Reco
 // The fake implements only the external Chat Completions transport. All evidence,
 // validation, caching and durable spend controls run through the real application API.
 func testAIUserUsage(t *testing.T) {
-	for _, scenario := range []string{"auth guards", "shared actions", "stored usage", "configuration", "invalid configuration"} {
+	// Same-server and private-network providers may use plain HTTP; public HTTP never may.
+	providerBases := map[string]string{
+		"tailscale http provider":  "http://100.92.189.13:8317/v1",
+		"lan http provider":        "http://192.168.1.210:8317/v1",
+		"container http provider":  "http://cli-proxy-api:8317/v1",
+		"public http provider":     "http://api.example.com/v1",
+		"numeric http provider":    "http://134744072/v1",
+		"zoned ipv6 http provider": "http://[2001:4860:4860::8888%25eth0]/v1",
+	}
+	for _, scenario := range []string{"auth guards", "shared actions", "stored usage", "configuration", "invalid configuration", "tailscale http provider", "lan http provider", "container http provider", "public http provider", "numeric http provider", "zoned ipv6 http provider"} {
 		t.Run(scenario, func(t *testing.T) {
 			var calls atomic.Int32
 			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -75,6 +84,9 @@ func testAIUserUsage(t *testing.T) {
 				t.Setenv("AI_USER_DAILY_LIMIT", "0")
 			} else if scenario == "invalid configuration" {
 				t.Setenv("AI_USER_DAILY_LIMIT", "100001")
+			} else if base := providerBases[scenario]; base != "" {
+				t.Setenv("AI_BASE_URL", base)
+				t.Setenv("AI_API_KEY", "fixture-key")
 			}
 			server, pb := startTestServer(t)
 			a, tokenA := aiTestUser(t, pb, "users", "account-a") // No verification requirement.
@@ -239,6 +251,14 @@ func testAIUserUsage(t *testing.T) {
 				usage(tokenA, 0, 10, 10, true)
 				request("POST", "search", tokenA, qualitative, 200, "")
 				usage(tokenA, 1, 9, 10, true)
+			case "tailscale http provider", "lan http provider", "container http provider":
+				usage(tokenA, 0, 3, 3, true)
+			case "public http provider", "numeric http provider", "zoned ipv6 http provider":
+				usage(tokenA, 0, 3, 3, false)
+				request("POST", "explain", tokenA, explain, 503, "disabled")
+				if calls.Load() != 0 {
+					t.Error("public http provider spend")
+				}
 			case "configuration":
 				usage(tokenA, 0, 0, 0, false)
 				request("POST", "explain", tokenA, explain, 503, "disabled")
