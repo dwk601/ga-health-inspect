@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import type { RecordModel } from 'pocketbase'
 import { ArrowLeft, ExternalLink, MapPin, Phone } from 'lucide-react'
+import { InspectionExplanation } from './InspectionExplanation'
 import { CommunityPanel } from './CommunityPanel'
 import { formatDate, formatTime } from './format'
 import { facilityTitle, officialName } from './facilityName'
@@ -168,6 +169,7 @@ export function FacilityDetail({
                       </span>
                     </div>
                     <FindingsStatus inspection={i} />
+                    <InspectionExplanation key={i.contentHash} selections={[{ facilityId: id, inspectionId: i.id }]} />
                     {i.evidence.reportStatus !== 'available' && i.evidence.reportStatus !== 'external' && <p className="evidence-status">Printable report: {i.evidence.reportStatus === 'not_fetched' ? 'not retrieved' : i.evidence.reportStatus === 'refresh_failed' ? 'refresh failed; retained report fields shown' : 'retrieval failed'}.{i.evidence.reportAttemptedAt && ` Last attempt ${new Date(i.evidence.reportAttemptedAt).toLocaleString()}.`}</p>}
                     {(report || i.violations.length > 0 || i.comments) && (
                       <div className="inspection-extras">

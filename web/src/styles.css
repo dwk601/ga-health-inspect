@@ -156,6 +156,11 @@ h3 {
   color: var(--muted-foreground);
 }
 .evidence-status { font-size: 0.875rem; margin-block: 0.6rem; }
+.ai-explanation { margin-block: 1rem; font-size: 0.875rem; overflow-wrap: anywhere; }
+.ai-explanation h3 { font-size: 1rem; margin-block: 1rem 0.5rem; }
+.ai-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.ai-citations { font-size: 0.8rem; margin-block: 0.4rem 0.8rem; }
+.ai-explanation p:empty { display: none; }
 .topbar {
   min-height: 64px;
   padding: 0.6rem 1.25rem;

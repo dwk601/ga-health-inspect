@@ -72,6 +72,22 @@ export async function lookupFacilities(ids: string[], signal: AbortSignal) {
   }
   return ids.flatMap(id => { const facility = facilityCache.get(id)?.facility; return facility ? [facility] : [] })
 }
+export async function requestAI<T>(task: 'explain' | 'search', input: unknown, signal: AbortSignal): Promise<T> {
+  const response = await fetch(`/api/inspect/ai/${task}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal })
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({})) as { error?: string }
+    const messages: Record<string, string> = {
+      disabled: 'AI is not enabled. Original records and manual search remain available.',
+      quota: 'The daily AI limit has been reached. Try again tomorrow.',
+      busy: 'AI is busy. Try again shortly.',
+      timeout: 'AI took too long. Try again or use the original records.',
+      source_unavailable: 'Complete source findings are unavailable for this inspection. Use the original report.',
+      source_too_large: 'This record is too long for AI. Use the original report.',
+    }
+    throw new Error(messages[data.error ?? ''] ?? (response.status === 429 ? 'Too many AI requests. Please wait a minute.' : 'AI could not produce a supported answer. Original records remain available.'))
+  }
+  return response.json() as Promise<T>
+}
 export function getDetail(id: string) { return get<Detail>(`/api/inspect/facilities/${encodeURIComponent(id)}`) }
 export function errorMessage(error: unknown, action: string, restrictedRecord = false, contributionWrite = false): string {
   if (typeof error === 'object' && error && 'status' in error) {

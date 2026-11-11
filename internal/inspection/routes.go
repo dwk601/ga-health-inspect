@@ -22,11 +22,12 @@ import (
 type service struct {
 	store *store
 	cache *pointsCache
+	ai    *aiService
 }
 
 // Register adds read-only inspection routes without requiring either external service at startup.
 func Register(e *core.ServeEvent) {
-	s := &service{store: newStore(e.App.Logger()), cache: newCache(e.App.Logger())}
+	s := &service{store: newStore(e.App.Logger()), cache: newCache(e.App.Logger()), ai: newAI()}
 	community.RegisterFacilityValidation(e.App, s.store.location)
 	e.App.OnTerminate().BindFunc(func(event *core.TerminateEvent) error {
 		if s.store.pool != nil {
@@ -37,6 +38,7 @@ func Register(e *core.ServeEvent) {
 		}
 		return event.Next()
 	})
+	e.Router.POST("/api/inspect/ai/explain", s.explain).Bind(apis.SkipSuccessActivityLog())
 	e.Router.GET("/api/inspect/points", s.points)
 	e.Router.GET("/api/inspect/search", s.search)
 	e.Router.GET("/api/inspect/facilities/{id}", s.detail)

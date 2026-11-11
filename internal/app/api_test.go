@@ -84,7 +84,7 @@ func TestManagedSettingsUpdate(t *testing.T) {
 	for _, method := range []string{http.MethodPatch, http.MethodGet} {
 		var body io.Reader
 		if method == http.MethodPatch {
-			body = strings.NewReader(`{"meta":{"appName":"Updated"}}`)
+			body = strings.NewReader(`{"meta":{"appName":"Updated"},"rateLimits":{"enabled":false,"rules":[]}}`)
 		}
 		req, err := http.NewRequest(method, server.URL+"/api/settings", body)
 		if err != nil {
@@ -106,12 +106,27 @@ func TestManagedSettingsUpdate(t *testing.T) {
 			} `json:"smtp"`
 			RateLimits struct {
 				Enabled bool `json:"enabled"`
+				Rules   []struct {
+					Label       string `json:"label"`
+					MaxRequests int    `json:"maxRequests"`
+				} `json:"rules"`
 			} `json:"rateLimits"`
 		}
 		err = json.NewDecoder(res.Body).Decode(&settings)
 		res.Body.Close()
 		if err != nil || res.StatusCode != http.StatusOK || settings.Meta.AppURL != "https://settings.example.test" || !settings.SMTP.Enabled || settings.SMTP.Host != "smtp.example.test" || !settings.RateLimits.Enabled {
 			t.Fatalf("%s settings: status=%d settings=%+v error=%v", method, res.StatusCode, settings, err)
+		}
+		for _, label := range []string{"POST /api/inspect/ai/explain", "POST /api/inspect/ai/search"} {
+			found := 0
+			for _, rule := range settings.RateLimits.Rules {
+				if rule.Label == label && rule.MaxRequests == 12 {
+					found++
+				}
+			}
+			if found != 1 {
+				t.Fatalf("%s managed AI rule %s: %+v", method, label, settings.RateLimits)
+			}
 		}
 	}
 }
