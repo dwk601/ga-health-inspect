@@ -31,7 +31,7 @@ func boundedEnv(name string, fallback, min, max int) int {
 }
 
 func loadAIConfig() aiConfig {
-	c := aiConfig{base: strings.TrimRight(os.Getenv("AI_BASE_URL"), "/"), model: os.Getenv("AI_MODEL"), key: os.Getenv("AI_API_KEY"), timeout: time.Duration(boundedEnv("AI_TIMEOUT_MS", 10000, 10, 60000)) * time.Millisecond, tokens: boundedEnv("AI_MAX_TOKENS", 4096, 64, 4096), inputBytes: boundedEnv("AI_MAX_INPUT_BYTES", 24000, 512, 64000), daily: boundedEnv("AI_DAILY_LIMIT", 100, 0, 100000), userDaily: boundedEnv("AI_USER_DAILY_LIMIT", 10, 0, 100000), inflight: boundedEnv("AI_MAX_INFLIGHT", 4, 1, 32)}
+	c := aiConfig{base: strings.TrimRight(os.Getenv("AI_BASE_URL"), "/"), model: os.Getenv("AI_MODEL"), key: os.Getenv("AI_API_KEY"), timeout: time.Duration(boundedEnv("AI_TIMEOUT_MS", 30000, 10, 60000)) * time.Millisecond, tokens: boundedEnv("AI_MAX_TOKENS", 4096, 64, 4096), inputBytes: boundedEnv("AI_MAX_INPUT_BYTES", 24000, 512, 64000), daily: boundedEnv("AI_DAILY_LIMIT", 100, 0, 100000), userDaily: boundedEnv("AI_USER_DAILY_LIMIT", 10, 0, 100000), inflight: boundedEnv("AI_MAX_INFLIGHT", 4, 1, 32)}
 	u, err := url.Parse(c.base)
 	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		c.base = ""
