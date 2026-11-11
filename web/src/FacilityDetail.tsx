@@ -147,6 +147,7 @@ export function FacilityDetail({
           </dl>
           <section className="inspection-history">
             <h2>Inspection history</h2>
+            <p className="muted">Optional AI explanations send selected public inspection records to the configured AI provider, not your account or device location. AI is offered only for confirmed, non-empty findings.</p>
             {!detail.inspections.length && (
               <p className="muted">No inspections on record.</p>
             )}
@@ -169,7 +170,7 @@ export function FacilityDetail({
                       </span>
                     </div>
                     <FindingsStatus inspection={i} />
-                    <InspectionExplanation key={i.contentHash} selections={[{ facilityId: id, inspectionId: i.id }]} />
+                    {i.evidence.findingsStatus === 'available' && i.violations.length > 0 ? <InspectionExplanation key={i.contentHash} selections={[{ facilityId: id, inspectionId: i.id, contentHash: i.contentHash }]} /> : <p className="evidence-status">AI explanation unavailable: {i.evidence.findingsStatus === 'available' ? 'no findings to explain.' : 'source findings are not confirmed complete.'}</p>}
                     {i.evidence.reportStatus !== 'available' && i.evidence.reportStatus !== 'external' && <p className="evidence-status">Printable report: {i.evidence.reportStatus === 'not_fetched' ? 'not retrieved' : i.evidence.reportStatus === 'refresh_failed' ? 'refresh failed; retained report fields shown' : 'retrieval failed'}.{i.evidence.reportAttemptedAt && ` Last attempt ${new Date(i.evidence.reportAttemptedAt).toLocaleString()}.`}</p>}
                     {(report || i.violations.length > 0 || i.comments) && (
                       <div className="inspection-extras">

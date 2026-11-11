@@ -83,6 +83,7 @@ export async function requestAI<T>(task: 'explain' | 'search', input: unknown, s
       quota: 'The daily AI limit has been reached. Try again tomorrow.',
       busy: 'AI is busy. Try again shortly.',
       timeout: 'AI took too long. Try again or use the original records.',
+      source_changed: 'The source record changed. Reload the page to review the updated record before asking AI again.',
       source_unavailable: 'Complete source findings are unavailable for this inspection. Use the original report.',
       source_too_large: 'This record is too long for AI. Use the original report.',
     }

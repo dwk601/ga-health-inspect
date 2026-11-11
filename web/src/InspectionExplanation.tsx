@@ -28,7 +28,7 @@ export function InspectionExplanation({ selections, task = 'explain' }: { select
   }
   const displayed = language === 'es' && translation ? translation : answer
   return <div className="ai-explanation">
-    <p className="muted">Optional AI help sends these public inspection records to the configured AI provider, not your account or device location.</p>
+    {task === 'compare' && <p className="muted">Optional AI help sends these public inspection records to the configured AI provider, not your account or device location.</p>}
     <div className="ai-actions"><button type="button" disabled={busy} onClick={() => void explain()}>{busy ? 'Explaining…' : task === 'compare' ? 'Explain differences with AI' : 'Explain findings with AI'}</button>{busy && <button type="button" onClick={() => { controller.current?.abort(); setBusy(false) }}>Cancel</button>}</div>
     <p role="status">{error}</p>
     {answer && <>
@@ -36,14 +36,14 @@ export function InspectionExplanation({ selections, task = 'explain' }: { select
       <p className="muted">May contain mistakes. Citations identify records, not proof of each claim. This is not an assessment of current safety or a score interpretation.</p>
       <div className="ai-actions" role="group" aria-label="Explanation language">
         <button type="button" aria-pressed={language === 'en'} onClick={() => { controller.current?.abort(); setBusy(false); setLanguage('en') }}>English</button>
-        <button type="button" aria-pressed={language === 'es'} disabled={busy} onClick={() => { if (translation) setLanguage('es'); else void explain('es') }}>Español</button>
+        <button type="button" lang="es" aria-pressed={language === 'es'} disabled={busy} onClick={() => { if (translation) setLanguage('es'); else void explain('es') }}>Español</button>
       </div>
       {language === 'es' && <p>Machine translation of the English AI explanation. The official report is unchanged.</p>}
-      <ul lang={language}>{displayed?.bullets.map((bullet, index) => <li key={index}>{bullet.text}<ul className="ai-citations">{bullet.citations.map(id => {
+      <ul>{displayed?.bullets.map((bullet, index) => <li key={index}><span lang={language}>{bullet.text}</span><ul className="ai-citations">{bullet.citations.map(id => {
         const source = answer.sources.find(item => item.id === id)
-        return source && <li key={id}>{source.url ? <a href={source.url} target="_blank" rel="noreferrer">{source.label} (original report)</a> : <span>{source.label} (record above)</span>}</li>
+        return source && <li key={id}>{source.url ? <a href={source.url} target="_blank" rel="noreferrer">{source.label} (original report)</a> : <span>{source.label} (record on this page)</span>}</li>
       })}</ul></li>)}</ul>
-      <button type="button" aria-expanded={report} onClick={() => setReport(!report)}>Report an explanation error</button>
+      <button type="button" aria-expanded={report} onClick={() => setReport(!report)}>Check this explanation</button>
       {report && <p>Do not rely on uncertain AI text. Check the original report using the citations above and contact the issuing authority about its records. No report has been submitted by this app.</p>}
     </>}
   </div>
