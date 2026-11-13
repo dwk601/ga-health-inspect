@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent, type RefObject } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Dialog, DialogClose, DialogContent, DialogTitle } from '@ui-sdk/react/dialog'
 import { ClientResponseError } from 'pocketbase'
 import { X } from 'lucide-react'
 import { pb, errorMessage, refreshAuth } from './api'
 
-export function AuthPanel({ open, accountRef, onClose, onSignedIn, initialRecovery = false }: { open: boolean; accountRef: RefObject<HTMLButtonElement | null>; onClose: () => void; onSignedIn: () => void; initialRecovery?: boolean }) {
+export function AuthPanel({ onClose, onSignedIn, initialRecovery = false }: { onClose: () => void; onSignedIn: () => void; initialRecovery?: boolean }) {
   const [signup, setSignup] = useState(false)
   const [recovery, setRecovery] = useState<'reset' | 'verify' | null>(initialRecovery ? 'verify' : null)
   const [message, setMessage] = useState('')
@@ -40,8 +40,8 @@ export function AuthPanel({ open, accountRef, onClose, onSignedIn, initialRecove
   }
   const title = recovery === 'reset' ? 'Reset password' : recovery === 'verify' ? 'Resend verification email' : signup ? 'Create account' : 'Sign in'
   const switchTo = (next: { signup?: boolean; recovery?: 'reset' | 'verify' | null }) => { setSignup(next.signup ?? false); setRecovery(next.recovery ?? null); setMessage('') }
-  return <Dialog open={open} onOpenChange={next => { if (!next) onClose() }} modal={false} closeOnOutsidePress={false}>
-    <DialogContent className="auth-panel" initialFocus="#auth-email" finalFocus={() => accountRef.current}>
+  return <Dialog open onOpenChange={next => { if (!next) onClose() }} modal={false} closeOnOutsidePress={false}>
+    <DialogContent className="auth-panel" initialFocus="#auth-email">
       <div className="section-heading"><DialogTitle id="auth-title" aria-live="polite">{title}</DialogTitle><DialogClose className="icon-button" aria-label="Close"><X size={18} /></DialogClose></div>
       <p>{recovery === 'reset' ? 'Enter your email and we’ll send a reset link.' : recovery === 'verify' ? 'Enter your email and we’ll send a new verification link.' : 'Verify your email before posting a rating or comment.'}</p>
       <form onSubmit={submit} method="post">

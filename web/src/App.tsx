@@ -394,7 +394,7 @@ export default function App() {
     <div className="sr-only" role="status" aria-atomic="true">{(nearby.active || area) && !status.error ? status.text : ''}</div>
     <div className="sr-only" role="alert" aria-atomic="true">{(nearby.active || area) && status.error ? status.text : ''}</div>
     <Header theme={theme} toggleTheme={toggleTheme} user={user} auth={auth} setAuth={setAuth} home={() => select(null)} accountRef={accountRef} />
-    {auth && <AuthImportBoundary key={authAttempt} onClose={closeAuth} onRetry={retryAuthImport}><Suspense fallback={<AuthImportFallback onClose={closeAuth} />}><LazyAuthPanel open={auth} accountRef={accountRef} initialRecovery={initialRecovery} onClose={closeAuth} onSignedIn={closeAuth} /></Suspense></AuthImportBoundary>}
+    {auth && <AuthImportBoundary key={authAttempt} onClose={closeAuth} onRetry={retryAuthImport}><Suspense fallback={<AuthImportFallback onClose={closeAuth} />}><LazyAuthPanel initialRecovery={initialRecovery} onClose={closeAuth} onSignedIn={closeAuth} /></Suspense></AuthImportBoundary>}
     <main className="workspace">
       <aside className={`sidebar ${mobileMap ? 'mobile-hidden' : ''}`}>
         <ComparisonTray ids={compareIDs} items={comparisonData.items} names={comparisonNames} onRemove={id => updateComparison(compareIDs.filter(item => item !== id))} onClear={() => updateComparison([])} onView={viewComparison} />
