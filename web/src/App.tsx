@@ -2,7 +2,9 @@ import { Component, Suspense, lazy, useCallback, useEffect, useLayoutEffect, use
 import { flushSync } from 'react-dom'
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import type { RecordModel } from 'pocketbase'
-import { LocateFixed, Moon, Search, Sun } from 'lucide-react'
+import { LocateFixed, Moon, Search, Sun, X } from 'lucide-react'
+import { useShortcut } from '@ui-sdk/react/shortcuts'
+import { Toggle, ToggleGroup } from '@ui-sdk/react/toggle'
 import { LIST_LIMIT, useNearby } from './useNearby'
 import { pb, getPoints, getDetail, search, refreshAuth } from './api'
 import { MapFailure } from './MapFailure'
@@ -11,7 +13,6 @@ import { FacilityDetail } from './FacilityDetail'
 import { ComparisonTray, FacilityCompare, useComparison } from './FacilityCompare'
 import { facilityLabel } from './facilityName'
 import { DiscoveryFilters } from './DiscoveryFilters'
-import { AuthPanel } from './AuthPanel'
 import { AIUsageProvider } from './AIUsage'
 import { AccountLink } from './AccountLink'
 import type { Detail, Facility, MapArea, Snapshot, SearchFilters, SearchIntent, ComparisonSelection } from './types'
@@ -22,6 +23,22 @@ const createMapView = () => lazy(async () => {
   const { MapView } = await import('./MapView')
   return { default: MapView }
 })
+
+const createAuthPanel = () => lazy(() => import('./AuthPanel').then(({ AuthPanel }) => ({ default: AuthPanel })))
+
+function AuthImportFallback({ failed = false, onClose, onRetry }: { failed?: boolean; onClose: () => void; onRetry?: () => void }) {
+  return <section className="auth-panel" aria-labelledby="auth-loading-title">
+    <div className="section-heading"><h2 id="auth-loading-title">Sign in</h2><button type="button" className="icon-button" onClick={onClose} aria-label="Close" autoFocus><X size={18} /></button></div>
+    <p role={failed ? 'alert' : 'status'}>{failed ? 'Could not load sign in. Try again.' : 'Loading sign in…'}</p>
+    {failed && <button type="button" className="primary block" onClick={onRetry}>Try again</button>}
+  </section>
+}
+
+class AuthImportBoundary extends Component<{ children: ReactNode; onClose: () => void; onRetry: () => void }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  render() { return this.state.failed ? <AuthImportFallback failed onClose={this.props.onClose} onRetry={this.props.onRetry} /> : this.props.children }
+}
 
 class MapImportBoundary extends Component<{ children: ReactNode; onRetry: () => void }, { failed: boolean }> {
   state = { failed: false }
@@ -268,6 +285,9 @@ export default function App() {
   const [user, setUser] = useState<RecordModel | null>(pb.authStore.record)
   const [initialRecovery, setInitialRecovery] = useState(() => new URLSearchParams(location.search).get('resend') === 'verification')
   const [auth, setAuth] = useState(initialRecovery)
+  const [LazyAuthPanel, setLazyAuthPanel] = useState(createAuthPanel)
+  const [authAttempt, setAuthAttempt] = useState(0)
+  const retryAuthImport = () => { setLazyAuthPanel(createAuthPanel()); setAuthAttempt(n => n + 1) }
   useEffect(() => {
     if (!initialRecovery) return
     const url = new URL(location.href)
@@ -305,12 +325,10 @@ export default function App() {
     return () => { unsubscribe(); window.removeEventListener('focus', onFocus) }
   }, [])
   useEffect(() => { if (!auth) setInitialRecovery(false) }, [auth])
-  useEffect(() => {
-    if (!auth) return
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') closeAuth() }
-    addEventListener('keydown', onKey)
-    return () => removeEventListener('keydown', onKey)
-  }, [auth])
+  useShortcut('escape', closeAuth, {
+    when: () => auth && !document.activeElement?.closest('.auth-panel[data-slot="dialog-content"]'),
+    allowInInput: true,
+  })
   useEffect(() => { document.documentElement.classList.toggle('dark', theme === 'dark'); document.documentElement.style.colorScheme = theme }, [theme])
   useEffect(() => {
     const handler = () => {
@@ -376,7 +394,7 @@ export default function App() {
     <div className="sr-only" role="status" aria-atomic="true">{(nearby.active || area) && !status.error ? status.text : ''}</div>
     <div className="sr-only" role="alert" aria-atomic="true">{(nearby.active || area) && status.error ? status.text : ''}</div>
     <Header theme={theme} toggleTheme={toggleTheme} user={user} auth={auth} setAuth={setAuth} home={() => select(null)} accountRef={accountRef} />
-    {auth && <AuthPanel initialRecovery={initialRecovery} onClose={closeAuth} onSignedIn={closeAuth} />}
+    {auth && <AuthImportBoundary key={authAttempt} onClose={closeAuth} onRetry={retryAuthImport}><Suspense fallback={<AuthImportFallback onClose={closeAuth} />}><LazyAuthPanel open={auth} accountRef={accountRef} initialRecovery={initialRecovery} onClose={closeAuth} onSignedIn={closeAuth} /></Suspense></AuthImportBoundary>}
     <main className="workspace">
       <aside className={`sidebar ${mobileMap ? 'mobile-hidden' : ''}`}>
         <ComparisonTray ids={compareIDs} items={comparisonData.items} names={comparisonNames} onRemove={id => updateComparison(compareIDs.filter(item => item !== id))} onClear={() => updateComparison([])} onView={viewComparison} />
@@ -396,7 +414,7 @@ export default function App() {
         <MapImportBoundary key={mapAttempt} onRetry={retryMapImport}><Suspense fallback={<div className="map-failure">Loading map…</div>}><LazyMapView filtered={!area && (nearby.active ? !!nearby.origin : constrained)} selectedPoint={selectedPoint} statewidePoints={points} fitPoints={fitPoints} ready={!!snapshot} origin={nearby.origin} nearby={nearby.active} selected={selected} onSelect={select} theme={theme} detail={currentDetail?.detail?.facility ?? null} detailError={!!currentDetail?.error} area={!!area} reset={reset} onArea={onArea} cancelKey={`${movementVersion}-${permit}-${mobileMap}-${selected}-${JSON.stringify(filters)}-${sort}`} /></Suspense></MapImportBoundary>
         </>}
       </div>
-      <div className="mobile-switch" role="group" aria-label="View"><button aria-pressed={!mobileMap} onClick={() => setMobileMap(false)}>List</button><button aria-pressed={mobileMap} onClick={() => setMobileMap(true)}>{comparing ? 'Compare' : 'Map'}</button></div>
+      <ToggleGroup className="mobile-switch" aria-label="View" value={[mobileMap ? 'map' : 'list']} onValueChange={value => setMobileMap(value[0] === 'map')} deselectable={false}><Toggle value="list">List</Toggle><Toggle value="map">{comparing ? 'Compare' : 'Map'}</Toggle></ToggleGroup>
     </main>
   </AIUsageProvider>
 }

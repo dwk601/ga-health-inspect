@@ -1,3 +1,4 @@
+@layer ui-sdk;
 @import "tailwindcss";
 @import "tw-animate-css";
 @custom-variant dark (&:where(.dark, .dark *));
@@ -867,6 +868,12 @@ textarea {
   border-radius: 12px;
   box-shadow: var(--shadow);
 }
+.auth-panel[data-slot="dialog-content"] {
+  margin: 0;
+  left: auto;
+  bottom: auto;
+  color: var(--foreground);
+}
 .auth-panel .section-heading {
   align-items: center;
 }
@@ -931,7 +938,7 @@ textarea {
     display: flex;
     flex-direction: column;
   }
-  .mobile-switch {
+  .mobile-switch[data-slot="toggle-group"] {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 2px;
@@ -943,14 +950,14 @@ textarea {
     border-radius: 9px;
     background: var(--muted);
   }
-  .mobile-switch button {
+  .mobile-switch [data-slot="toggle"] {
     min-height: 44px;
     padding: 0.4rem;
     border-color: transparent;
     background: transparent;
     color: var(--muted-foreground);
   }
-  .mobile-switch button[aria-pressed="true"] {
+  .mobile-switch [data-slot="toggle"][data-pressed] {
     background: var(--card);
     color: var(--foreground);
     box-shadow: var(--shadow);
