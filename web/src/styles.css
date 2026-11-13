@@ -700,10 +700,6 @@ textarea {
 .inspection-extras [data-slot="collapsible-trigger"][data-open]::before {
   list-style-type: disclosure-open;
 }
-.inspection-extras [data-slot="collapsible-trigger"]:focus-visible {
-  outline: 3px solid var(--focus);
-  outline-offset: 2px;
-}
 .inspection-extras [data-slot="collapsible-panel"] ul {
   margin: 0.4rem 0 0;
   padding-left: 1.1rem;
