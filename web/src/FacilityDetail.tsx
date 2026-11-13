@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@ui-sdk/react/collapsible'
 import type { RecordModel } from 'pocketbase'
 import { ArrowLeft, ExternalLink, MapPin, Phone } from 'lucide-react'
 import { AIUsageControl } from './AIUsage'
@@ -184,29 +185,33 @@ export function FacilityDetail({
                     {(report || i.violations.length > 0 || i.comments) && (
                       <div className="inspection-extras">
                         {i.violations.length > 0 && (
-                          <details>
-                            <summary>
+                          <Collapsible>
+                            <CollapsibleTrigger>
                               Findings from this inspection ({i.violations.length})
-                            </summary>
-                            <ul>
-                              {i.violations.map((v) => (
-                                <li key={v.sourceKey}>
-                                  <strong>
-                                    {v.codeTitle || v.regulation || 'Violation'}
-                                  </strong>
-                                  {v.notes && <p>{v.notes}</p>}
-                                  {v.corrected === true && <p>Corrected during inspection</p>}
-                                  {v.repeat === true && <p>Repeat finding</p>}
-                                </li>
-                              ))}
-                            </ul>
-                          </details>
+                            </CollapsibleTrigger>
+                            <CollapsiblePanel hiddenUntilFound>
+                              <ul>
+                                {i.violations.map((v) => (
+                                  <li key={v.sourceKey}>
+                                    <strong>
+                                      {v.codeTitle || v.regulation || 'Violation'}
+                                    </strong>
+                                    {v.notes && <p>{v.notes}</p>}
+                                    {v.corrected === true && <p>Corrected during inspection</p>}
+                                    {v.repeat === true && <p>Repeat finding</p>}
+                                  </li>
+                                ))}
+                              </ul>
+                            </CollapsiblePanel>
+                          </Collapsible>
                         )}
                         {i.comments && (
-                          <details>
-                            <summary>Inspector comments</summary>
-                            <p>{i.comments}</p>
-                          </details>
+                          <Collapsible>
+                            <CollapsibleTrigger>Inspector comments</CollapsibleTrigger>
+                            <CollapsiblePanel hiddenUntilFound>
+                              <p>{i.comments}</p>
+                            </CollapsiblePanel>
+                          </Collapsible>
                         )}
                         {report && (
                           <a href={report} target="_blank" rel="noreferrer">

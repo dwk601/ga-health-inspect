@@ -676,24 +676,42 @@ textarea {
   gap: 0.5rem 1rem;
   margin-top: 0.55rem;
 }
-.inspection-extras details {
+.inspection-extras [data-slot="collapsible"] {
   flex: 1 1 12rem;
 }
-.inspection-extras summary {
+.inspection-extras [data-slot="collapsible-trigger"] {
+  display: block;
   min-height: 44px;
-  padding-block: .7rem;
+  padding: .7rem 0;
   width: fit-content;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--foreground);
+  font: inherit;
   font-weight: 600;
+  text-align: start;
 }
-.inspection-extras details ul {
+.inspection-extras [data-slot="collapsible-trigger"]::before {
+  content: "";
+  display: inline list-item;
+  list-style: disclosure-closed inside;
+}
+.inspection-extras [data-slot="collapsible-trigger"][data-open]::before {
+  list-style-type: disclosure-open;
+}
+.inspection-extras [data-slot="collapsible-trigger"]:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+.inspection-extras [data-slot="collapsible-panel"] ul {
   margin: 0.4rem 0 0;
   padding-left: 1.1rem;
 }
-.inspection-extras details li {
+.inspection-extras [data-slot="collapsible-panel"] li {
   margin: 0.5rem 0;
 }
-.inspection-extras details p {
+.inspection-extras [data-slot="collapsible-panel"] p {
   margin: 0.2rem 0 0;
   color: var(--muted-foreground);
   white-space: pre-line;
