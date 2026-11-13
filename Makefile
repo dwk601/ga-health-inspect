@@ -23,6 +23,7 @@ vet: frontend
 	go vet $(GO_PACKAGES)
 check: frontend require-project
 	npm --prefix web run check
+	npm --prefix web test
 	go vet $(GO_PACKAGES)
 	@pgport=$$($(COMPOSE) port postgres 5432 | awk -F: '{print $$NF}'); redisport=$$($(COMPOSE) port redis 6379 | awk -F: '{print $$NF}'); \
 	$(SERVICE_URLS) go test $(GO_PACKAGES)
