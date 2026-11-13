@@ -99,8 +99,7 @@ textarea {
   font: inherit;
 }
 button,
-a,
-summary {
+a {
   cursor: pointer;
 }
 :focus-visible {
@@ -167,8 +166,8 @@ h3 {
 .active-filters ul { list-style: none; display: flex; flex-wrap: wrap; gap: 0.4rem; padding: 0; margin: 0 0 0.5rem; }
 .active-filters li { padding: 0.35rem 0.5rem; border: 1px solid var(--border); border-radius: 5px; overflow-wrap: anywhere; }
 .discovery-filters > [data-slot="collapsible-trigger"] { display: block; width: 100%; min-height: 0; padding: 0.75rem 0; border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; text-align: start; }
-.discovery-filters > [data-slot="collapsible-trigger"]::before { content: ''; display: inline-block; width: 0.65em; height: 0.65em; margin-inline-end: 0.4em; background: currentColor; clip-path: polygon(0 0, 100% 50%, 0 100%); }
-.discovery-filters > [data-slot="collapsible-trigger"][data-open]::before { clip-path: polygon(0 0, 100% 0, 50% 100%); }
+.discovery-filters > [data-slot="collapsible-trigger"]::before { content: ""; display: inline list-item; list-style: disclosure-closed inside; }
+.discovery-filters > [data-slot="collapsible-trigger"][data-open]::before { list-style-type: disclosure-open; }
 .discovery-filters form { display: grid; gap: 0.6rem; margin-block: 1rem; }
 .discovery-filters form + form { border-top: 1px solid var(--border); padding-top: 1rem; }
 .discovery-filters input, .discovery-filters textarea { min-width: 0; width: 100%; min-height: 48px; padding: 0.6rem; border: 1px solid var(--control-border); border-radius: 7px; color: var(--foreground); background: var(--card); font-size: 1rem; }

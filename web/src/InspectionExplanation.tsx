@@ -45,7 +45,7 @@ function ExplanationSession({ selections, task = 'explain' }: { selections: AISe
       <h3>AI explanation</h3>
       <p className="muted">May contain mistakes. Citations identify records, not proof of each claim. This is not an assessment of current safety or a score interpretation.</p>
       <ToggleGroup className="ai-actions" aria-label="Explanation language" value={[language]} deselectable={false} onValueChange={(value, details) => {
-        if (value[0] === 'en') { cancel(); setLanguage('en') }
+        if (value[0] === 'en') setLanguage('en')
         else if (translation) setLanguage('es')
         else { details.cancel(); void explain('es') }
       }}>
