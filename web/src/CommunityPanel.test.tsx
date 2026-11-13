@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, test, vi } from 'vitest'
 import { CommunityPanel } from './CommunityPanel'
@@ -54,7 +54,8 @@ test('removal only deletes the selected comment after confirmation', async () =>
   expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(0)
   expect(screen.getByText('A pleasant visit.')).toBeTruthy()
 
-  await visitor.click(launcher)
+  fireEvent.click(launcher)
+  expect(screen.queryByText('Loading removal confirmation…')).toBeNull()
   await screen.findByRole('alertdialog', { name: 'Remove this comment?' })
   await visitor.keyboard('{Escape}')
   await waitFor(() => expect(document.activeElement).toBe(launcher))

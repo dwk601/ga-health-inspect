@@ -123,11 +123,12 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, retryM
     } finally { if (generation.current === current) pending(false) }
   }
   function requestRemoval(kind: 'ratings' | 'comments', item: Item, launcher: HTMLButtonElement) {
-    setConfirmation(createRemovalConfirmation())
     setMessage('')
     setRemoval({ kind, item, launcher })
   }
   function removalLoadFailed() {
+    // A failed lazy import is cached, so a retry needs a new one.
+    setConfirmation(createRemovalConfirmation())
     setMessage('Could not load removal confirmation. Please try again.')
     setRemoval(null)
     const target = removal?.launcher.isConnected ? removal.launcher : document.getElementById('community-title')
