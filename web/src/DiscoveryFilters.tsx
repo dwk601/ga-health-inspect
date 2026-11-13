@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from '@ui-sdk/react/collapsible'
 import { AIUsageControl, useAI } from './AIUsage'
 import { aiUserId } from './api'
 import type { SearchFilters, SearchIntent } from './types'
@@ -52,8 +53,9 @@ export function DiscoveryFilters({ filters, onFilters, onIntent, nearby, cancelK
   function clear() { cancel(); onFilters({ name: '', address: '', minScore: '', maxScore: '', radius: '25' }) }
   return <>
     {active.length > 0 && <div className="active-filters"><ul role="list" aria-label="Active extra filters">{active.map(label => <li key={String(label)}>{label}</li>)}</ul><button type="button" onClick={clear}>Clear extra filters</button></div>}
-    <details className="discovery-filters">
-    <summary>More filters & AI search</summary>
+    <Collapsible className="discovery-filters">
+    <CollapsibleTrigger>More filters & AI search</CollapsibleTrigger>
+    <CollapsiblePanel keepMounted>
     <NaturalLanguageSearch key={ai.userId} onIntent={onIntent} cancelKey={JSON.stringify([cancelKey, cancelVersion])} />
     <form aria-label="Manual search filters" onSubmit={event => { event.preventDefault(); cancel(); onFilters(draft) }}>
       <label htmlFor="filter-name">Name contains</label><input id="filter-name" name="name" maxLength={200} value={draft.name} onChange={event => change('name', event.target.value)} />
@@ -66,5 +68,6 @@ export function DiscoveryFilters({ filters, onFilters, onIntent, nearby, cancelK
       <p className="muted">Scores are source values, not visitor ratings. Different permit types may use different scales.</p>
       <div className="ai-actions"><button type="submit">Apply filters</button><button type="button" onClick={clear}>Clear extra filters</button></div>
     </form>
-  </details></>
+    </CollapsiblePanel>
+  </Collapsible></>
 }
