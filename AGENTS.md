@@ -26,6 +26,7 @@ Intended stack: React + Vite; PocketBase (Go) handles the application backend. P
 ## Skill map
 
 - [frontend-design](.agents/skills/frontend-design/SKILL.md): load when building new UI, reshaping existing UI, or choosing visual direction, typography, and layout.
+- [ui-sdk](.agents/skills/ui-sdk/SKILL.md): before using ui-sdk (`@ui-sdk/react`, `@ui-sdk/core`), follow this skill and read `web/node_modules/@ui-sdk/react/docs/llms.txt`. To build a new component, also search `web/node_modules/@ui-sdk/react/docs/core.md` by heading and read `rendering.md` next to it.
 
 ## Maintain
 
