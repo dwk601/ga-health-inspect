@@ -48,7 +48,7 @@ export function AccountLink({ kind, token }: { kind: 'verify' | 'reset-password'
       <p id="password-help">Use at least 8 characters. Both fields are required.</p>
       <label htmlFor="new-password">New password<input id="new-password" name="password" type="password" autoComplete="new-password" minLength={8} aria-describedby="password-help" required /></label>
       <label htmlFor="confirm-password">Confirm password<input id="confirm-password" name="confirm" type="password" autoComplete="new-password" minLength={8} required /></label>
-      <button className="primary" aria-disabled={busy}>Reset password</button>
+      <button type="submit" className="primary" aria-disabled={busy}>Reset password</button>
     </form>}
     <p role="status">{message}</p>
     {kind === 'verify' && !busy && !success && <p><a href="/?resend=verification">Resend verification email</a></p>}
