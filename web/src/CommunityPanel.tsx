@@ -1,10 +1,20 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { Component, Suspense, lazy, useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { ClientResponseError, type RecordModel } from 'pocketbase'
 import { pb, errorMessage, refreshAuth } from './api'
 import { distanceMiles, geolocationFailureMessage, getPreciseLocation, type LocationFix } from './geolocation'
 import type { Contribution } from './types'
 
 type Item = Contribution & RecordModel
+type Removal = { kind: 'ratings' | 'comments'; item: Item; launcher: HTMLButtonElement }
+const createRemovalConfirmation = () => lazy(() => import('./RemovalConfirmation'))
+
+class RemovalImportBoundary extends Component<{ children: ReactNode; onFailure: () => void }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  componentDidCatch() { this.props.onFailure() }
+  render() { return this.state.failed ? null : this.props.children }
+}
+
 type Eligibility = { state: 'unknown' | 'checking' | 'eligible' | 'far' | 'outside' | 'imprecise' | 'unavailable' | 'expired'; text: string; expires?: number }
 const unknownLocation: Eligibility = { state: 'unknown', text: 'Check your location to see if you can rate here.' }
 function locationError(error: unknown) {
@@ -25,6 +35,8 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, retryM
   const [ratings, setRatings] = useState<Item[]>([]); const [comments, setComments] = useState<Item[]>([])
   const [message, setMessage] = useState(''); const [loadError, setLoadError] = useState(''); const [loaded, setLoaded] = useState(false); const [version, setVersion] = useState(0)
   const [editing, setEditing] = useState<string | null>(null)
+  const [removal, setRemoval] = useState<Removal | null>(null)
+  const [Confirmation, setConfirmation] = useState(createRemovalConfirmation)
   const [ratingPending, setRatingPending] = useState(false); const [commentPending, setCommentPending] = useState(false)
   const generation = useRef(0)
   const locationRequest = useRef(0)
@@ -110,11 +122,22 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, retryM
       } else { setMessage(errorMessage(error, kind === 'ratings' ? 'save your rating' : 'post your comment', kind === 'ratings' && !!own, true)); void refreshAuth() }
     } finally { if (generation.current === current) pending(false) }
   }
+  function requestRemoval(kind: 'ratings' | 'comments', item: Item, launcher: HTMLButtonElement) {
+    setConfirmation(createRemovalConfirmation())
+    setMessage('')
+    setRemoval({ kind, item, launcher })
+  }
+  function removalLoadFailed() {
+    setMessage('Could not load removal confirmation. Please try again.')
+    setRemoval(null)
+    const target = removal?.launcher.isConnected ? removal.launcher : document.getElementById('community-title')
+    target?.focus()
+  }
   async function remove(kind: 'ratings' | 'comments', item: Item) {
-    if (!window.confirm(`Remove this ${kind === 'ratings' ? 'rating' : 'comment'}?`)) return
-    try { await pb.collection(kind).delete(item.id); setMessage('Removed.'); updated() } catch (e) {
+    try { await pb.collection(kind).delete(item.id); setMessage('Removed.'); updated(); return true } catch (e) {
       setMessage(errorMessage(e, kind === 'ratings' ? 'remove the rating' : 'remove the comment', true))
-      if (e instanceof ClientResponseError && e.status === 404) updated()
+      if (e instanceof ClientResponseError && e.status === 404) { updated(); return true }
+      return false
     }
   }
   async function saveEdit(e: FormEvent<HTMLFormElement>, item: Item) {
@@ -148,11 +171,11 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, retryM
         <p className="muted">Enable location while you're here to rate. Comments don't require location.</p>
         <div className={`notice ${mapped === true && (eligibility.state === 'far' || eligibility.state === 'outside') ? 'location-warning' : ''}`} role="status"><p id="rating-location">{mapped === false ? 'This facility has no map location, so ratings are unavailable.' : mapped === undefined ? retryMap ? "Map data is unavailable, so your location can't be checked for rating right now. You can still comment." : 'Loading map location…' : eligibility.text}</p>{mapped === undefined && retryMap && <button type="button" onClick={retryMap}>Retry map data</button>}{mapped === true && <button type="button" onClick={() => void checkLocation()} disabled={ratingPending || eligibility.state === 'checking'}>{eligibility.state === 'unknown' ? 'Check my location' : 'Check again'}</button>}</div>
         <RatingPicker key={`${user.id}-${ownRating ?? 'new'}`} value={ownRating} disabled={pickerBlocked} />
-        <button className="primary" disabled={ratingPending || locationBlocked}>{ratingPending ? 'Saving…' : ownRating ? 'Update rating' : 'Save rating'}</button>
+        <button type="submit" className="primary" disabled={ratingPending || locationBlocked}>{ratingPending ? 'Saving…' : ownRating ? 'Update rating' : 'Save rating'}</button>
       </form>
       <form className="comment-composer" onSubmit={e => submit(e, 'comments')}>
         <label htmlFor="comment">Your comment<textarea id="comment" name="body" maxLength={2000} required rows={3} placeholder="What was your visit like?" /></label>
-        <button className="primary" disabled={commentPending}>{commentPending ? 'Saving…' : 'Post comment'}</button>
+        <button type="submit" className="primary" disabled={commentPending}>{commentPending ? 'Saving…' : 'Post comment'}</button>
       </form>
     </div> : <div className="notice contribute-prompt">{user
       ? <p>Verify your email to post a rating or comment. Ratings require being at the place. <button className="text-button" onClick={resendVerification}>Resend verification email</button></p>
@@ -163,7 +186,7 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, retryM
     {loaded && ratings.length === 0 && <p className="muted">No ratings yet.</p>}
     <ul className="contributions">{ratings.map(item => <li key={item.id}>
       <div className="contribution-head">{byline(item)}<span className="rating-value">{item.rating}<small>/5</small></span></div>
-      {canRemove(item) && <button className="text-button" onClick={() => remove('ratings', item)}>Remove rating</button>}{adminId(item)}
+      {canRemove(item) && <button type="button" className="text-button" onClick={e => requestRemoval('ratings', item, e.currentTarget)}>Remove rating</button>}{adminId(item)}
     </li>)}</ul>
 
     <h3>Comments{comments.length > 0 && <span className="count">{comments.length}</span>}</h3>
@@ -173,17 +196,22 @@ export function CommunityPanel({ facilityId, mapped, coordinates, origin, retryM
       {editing === item.id ? <form onSubmit={e => saveEdit(e, item)} className="edit-form">
         <label htmlFor={`edit-${item.id}`} className="sr-only">Edit your comment</label>
         <textarea id={`edit-${item.id}`} name="body" defaultValue={item.body} maxLength={2000} required rows={3} autoFocus />
-        <div className="actions"><button className="primary">Save</button><button type="button" onClick={() => setEditing(null)}>Cancel</button></div>
+        <div className="actions"><button type="submit" className="primary">Save</button><button type="button" onClick={() => setEditing(null)}>Cancel</button></div>
       </form> : <>
         <p className="comment-body">{item.body}</p>
         <div className="actions">
           {user?.id === item.owner && <button className="text-button" onClick={() => setEditing(item.id)}>Edit comment</button>}
-          {canRemove(item) && <button className="text-button" onClick={() => remove('comments', item)}>Remove comment</button>}
+          {canRemove(item) && <button type="button" className="text-button" onClick={e => requestRemoval('comments', item, e.currentTarget)}>Remove comment</button>}
         </div>
       </>}
       {adminId(item)}
     </li>)}</ul>
 
-    {user?.verified && user.role === 'admin' && <form onSubmit={role} className="role-form"><h3>Change user role</h3><label htmlFor="user-id">User ID<input id="user-id" name="userId" required /></label><label htmlFor="user-role">Role<select id="user-role" name="role"><option value="user">User</option><option value="moderator">Moderator</option><option value="admin">Admin</option></select></label><button>Update role</button></form>}
+    {user?.verified && user.role === 'admin' && <form onSubmit={role} className="role-form"><h3>Change user role</h3><label htmlFor="user-id">User ID<input id="user-id" name="userId" required /></label><label htmlFor="user-role">Role<select id="user-role" name="role"><option value="user">User</option><option value="moderator">Moderator</option><option value="admin">Admin</option></select></label><button type="submit">Update role</button></form>}
+    {removal && <RemovalImportBoundary onFailure={removalLoadFailed}>
+      <Suspense fallback={<p role="status">Loading removal confirmation…</p>}>
+        <Confirmation kind={removal.kind} launcher={removal.launcher} onRemove={() => remove(removal.kind, removal.item)} onClose={() => setRemoval(null)} />
+      </Suspense>
+    </RemovalImportBoundary>}
   </section>
 }
